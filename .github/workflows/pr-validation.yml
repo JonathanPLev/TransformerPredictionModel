@@ -1,0 +1,142 @@
+name: PR Validation
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch full history for change detection
+    
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+    
+    - name: Set up Python
+      run: uv python install 3.12
+    
+    - name: Install dependencies
+      run: |
+        uv sync --dev
+    
+    - name: Run Python linting
+      run: |
+        uv run poe lint
+    
+    - name: Run type checking
+      run: |
+        uv run poe type-check
+    
+    - name: Run YAML linting
+      run: |
+        uv run poe lint-yaml
+      continue-on-error: true  # Allow to continue if no YAML files exist
+    
+    - name: Install Node.js for markdown linting
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+    
+    - name: Install markdownlint-cli2
+      run: npm install -g markdownlint-cli2
+    
+    - name: Run markdown linting
+      run: |
+        uv run poe lint-markdown
+      continue-on-error: true  # Allow to continue if no markdown files exist
+    
+    - name: Run tests with coverage
+      run: |
+        uv run poe test-cov
+    
+    - name: Install Rust (if Rust files exist)
+      uses: dtolnay/rust-toolchain@stable
+      if: hashFiles('**/*.rs') != ''
+    
+    - name: Run Rust linting
+      run: cargo clippy -- -D warnings
+      if: hashFiles('**/*.rs') != ''
+    
+    - name: Check Rust formatting
+      run: cargo fmt --check
+      if: hashFiles('**/*.rs') != ''
+
+  commit-convention:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Check commit messages
+      uses: wagoid/commitlint-github-action@v6
+      with:
+        configFile: '.commitlintrc.json'
+
+  change-detection:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Get changed files
+      id: changed-files
+      uses: tj-actions/changed-files@v44
+      with:
+        files: |
+          **/*.py
+          **/*.rs
+          **/*.toml
+          **/*.yml
+          **/*.yaml
+          **/*.json
+          **/*.md
+    
+    - name: List changed files
+      if: steps.changed-files.outputs.any_changed == 'true'
+      run: |
+        echo "Changed files:"
+        echo "${{ steps.changed-files.outputs.all_changed_files }}"
+    
+    - name: Check if important files changed
+      if: steps.changed-files.outputs.any_changed == 'true'
+      run: |
+        echo "::notice::Files have been modified in this PR"
+        echo "Modified files: ${{ steps.changed-files.outputs.all_changed_files }}"
+
+  security-check:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+    
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'

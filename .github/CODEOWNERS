@@ -1,0 +1,10 @@
+# Global code owners - require approval for all changes
+* @JonathanPLev
+
+# Specific file patterns that require extra scrutiny
+*.yml @JonathanPLev
+*.yaml @JonathanPLev
+pyproject.toml @JonathanPLev
+Cargo.toml @JonathanPLev
+justfile @JonathanPLev
+.github/ @JonathanPLev

@@ -1,0 +1,40 @@
+[project]
+name = "transformerpredictionmodel"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "just>=0.8.165",
+]
+
+[tool.poe.tasks]
+# Python linting and formatting
+lint = "ruff check ."
+fix = "ruff check --fix ."
+format = "ruff format ."
+
+# Type checking
+type-check = "mypy ."
+
+# YAML linting
+lint-yaml = "yamllint ."
+
+# Markdown linting
+lint-markdown = "markdownlint-cli2 '**/*.md'"
+
+# Testing
+test = "pytest"
+test-cov = "pytest --cov=. --cov-report=term-missing"
+coverage-report = "pytest --cov=. --cov-report=html"
+
+[tool.uv]
+dev-dependencies = [
+    "mypy>=1.18.2",
+    "poethepoet>=0.37.0",
+    "pytest>=8.4.2",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.13.3",
+    "rust-just>=1.43.0",
+    "yamllint>=1.37.1",
+]
