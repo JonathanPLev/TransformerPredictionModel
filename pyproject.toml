@@ -28,6 +28,10 @@ test = "pytest"
 test-cov = "pytest --cov=. --cov-report=term-missing"
 coverage-report = "pytest --cov=. --cov-report=html"
 
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["src", "tests"]
+
 
 [dependency-groups]
 dev = [
