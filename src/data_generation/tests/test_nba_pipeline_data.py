@@ -1,6 +1,5 @@
 """Tests for NBA pipeline data generation."""
 
-import pytest
 from src.data_generation.nba_pipeline_data import StandardizedTrainingPipeline
 
 

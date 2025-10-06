@@ -9,10 +9,6 @@ dependencies = [
     "scikit-learn>=1.7.2",
 ]
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
 
 [tool.poe.tasks]
 # Python linting and formatting

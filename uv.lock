@@ -643,7 +643,7 @@ wheels = [
 [[package]]
 name = "transformerpredictionmodel"
 version = "0.1.0"
-source = { editable = "." }
+source = { virtual = "." }
 dependencies = [
     { name = "nba-api" },
     { name = "scikit-learn" },

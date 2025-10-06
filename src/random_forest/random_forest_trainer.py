@@ -1,13 +1,7 @@
-from sklearn.ensemble import RandomForestClassifier
 import pandas as pd
-import os
-from datetime import datetime
 from nba_api.stats.endpoints import playergamelog
 from nba_api.stats.library.parameters import SeasonAll
-from autogluon.tabular import TabularPredictor, TabularDataset
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
-from src.utils.shared_utils import PlayerUtils, DataProcessor, get_feature_columns
+from src.utils.shared_utils import PlayerUtils, DataProcessor
 
 class StandardizedTrainingPipeline:
     """Standardized training pipeline that works with any NBA player"""
@@ -53,7 +47,7 @@ class StandardizedTrainingPipeline:
                 return row['Projected_Line'] + 0.5
             else:
                 return row['Projected_Line'] - 0.5
-        except:
+        except Exception:
             return row['Projected_Line']
     
     def prepare_training_data(self):

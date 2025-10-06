@@ -1,6 +1,5 @@
 """Tests for Random Forest trainer."""
 
-import pytest
 from src.random_forest.random_forest_trainer import StandardizedTrainingPipeline
 
 

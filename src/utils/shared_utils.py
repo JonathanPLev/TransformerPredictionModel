@@ -61,7 +61,6 @@ class PlayerUtils:
     def save_model_metadata(player_name, model_path, accuracy, trained_date=None):
         """Save model metadata to JSON file"""
         import json
-        from datetime import datetime
         
         metadata = {}
         if os.path.exists("model_metadata.json"):
@@ -109,10 +108,10 @@ class DataProcessor:
             # Try multiple possible paths for team stats
             possible_paths = [
                 data_path,
-                f"NBA-dataset-stats-player-team/team/team_stats_advanced_rs.csv",
-                f"../NBA-dataset-stats-player-team/team/team_stats_advanced_rs.csv",
-                f"NBA-dataset-stats-player-team/team/team_stats_misc_rs.csv",
-                f"../NBA-dataset-stats-player-team/team/team_stats_misc_rs.csv"
+                "NBA-dataset-stats-player-team/team/team_stats_advanced_rs.csv",
+                "../NBA-dataset-stats-player-team/team/team_stats_advanced_rs.csv",
+                "NBA-dataset-stats-player-team/team/team_stats_misc_rs.csv",
+                "../NBA-dataset-stats-player-team/team/team_stats_misc_rs.csv"
             ]
             
             team_df = None
