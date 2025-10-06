@@ -1,6 +1,6 @@
 """Tests for the main module."""
 
-from transformerpredictionmodel.main import main
+from src.main import main
 
 
 def test_main() -> None:
