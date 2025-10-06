@@ -17,7 +17,15 @@ fix = "ruff check --fix ."
 format = "ruff format ."
 
 # Type checking
-type-check = "mypy ."
+type-check = "cd src && mypy ."
+
+[tool.mypy]
+explicit_package_bases = true
+namespace_packages = true
+exclude = [
+    "^tests/",
+    "^src/.*/tests/"
+]
 
 # YAML linting
 lint-yaml = "yamllint ."
@@ -30,8 +38,8 @@ test = "pytest"
 test-cov = "pytest --cov=. --cov-report=term-missing"
 coverage-report = "pytest --cov=. --cov-report=html"
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
     "mypy>=1.18.2",
     "poethepoet>=0.37.0",
     "pytest>=8.4.2",
