@@ -4,14 +4,11 @@ version = "0.1.0"
 description = "Project to predict sports player performance outcomes using complex ML modeling"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "nba-api>=1.10.2",
+    "scikit-learn>=1.7.2",
+]
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/transformerpredictionmodel"]
 
 [tool.poe.tasks]
 # Python linting and formatting
@@ -19,8 +16,6 @@ lint = "ruff check ."
 fix = "ruff check --fix ."
 format = "ruff format ."
 
-# Type checking
-type-check = "mypy ."
 
 # YAML linting
 lint-yaml = "yamllint ."
@@ -33,9 +28,13 @@ test = "pytest"
 test-cov = "pytest --cov=. --cov-report=term-missing"
 coverage-report = "pytest --cov=. --cov-report=html"
 
-[tool.uv]
-dev-dependencies = [
-    "mypy>=1.18.2",
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["src", "tests"]
+
+
+[dependency-groups]
+dev = [
     "poethepoet>=0.37.0",
     "pytest>=8.4.2",
     "pytest-cov>=7.0.0",
