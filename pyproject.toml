@@ -16,8 +16,6 @@ lint = "ruff check ."
 fix = "ruff check --fix ."
 format = "ruff format ."
 
-# Type checking
-type-check = "sh -c 'cd src && mypy .'"
 
 # YAML linting
 lint-yaml = "yamllint ."
@@ -30,22 +28,12 @@ test = "pytest"
 test-cov = "pytest --cov=. --cov-report=term-missing"
 coverage-report = "pytest --cov=. --cov-report=html"
 
-[tool.mypy]
-explicit_package_bases = true
-namespace_packages = true
-exclude = [
-    "^tests/",
-    "^src/.*/tests/"
-]
 
 [dependency-groups]
 dev = [
-    "mypy>=1.18.2",
-    "pandas-stubs>=2.0.0",
     "poethepoet>=0.37.0",
     "pytest>=8.4.2",
     "pytest-cov>=7.0.0",
     "ruff>=0.13.3",
-    "types-requests>=2.31.0",
     "yamllint>=1.37.1",
 ]

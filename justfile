@@ -14,9 +14,6 @@ fix-python:
 format-python:
     uv run poe format
 
-# Python type checking with MyPy
-type-check:
-    uv run poe type-check
 
 # YAML linting
 lint-yaml:
