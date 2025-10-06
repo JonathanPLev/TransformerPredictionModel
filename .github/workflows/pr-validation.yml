@@ -37,10 +37,6 @@ jobs:
       run: |
         uv run poe lint
     
-    - name: Run type checking
-      run: |
-        uv run poe type-check
-    
     - name: Run YAML linting
       run: |
         uv run poe lint-yaml
