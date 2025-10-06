@@ -7,7 +7,7 @@ from datetime import datetime
 from nba_api.stats.endpoints import playergamelog
 from nba_api.stats.static import players
 from nba_api.stats.endpoints import commonplayerinfo
-from team_name_map import team_name_map
+# team_name_map would be imported here if it existed
 
 class PlayerUtils:
     """Utilities for player information and validation"""

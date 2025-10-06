@@ -1,6 +1,6 @@
 """Tests for Random Forest trainer."""
 
-from src.random_forest.random_forest_trainer import StandardizedTrainingPipeline
+from random_forest.random_forest_trainer import StandardizedTrainingPipeline
 
 
 def test_random_forest_training_pipeline_init():

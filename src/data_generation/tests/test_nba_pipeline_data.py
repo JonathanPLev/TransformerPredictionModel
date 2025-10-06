@@ -1,6 +1,6 @@
 """Tests for NBA pipeline data generation."""
 
-from src.data_generation.nba_pipeline_data import StandardizedTrainingPipeline
+from data_generation.nba_pipeline_data import StandardizedTrainingPipeline
 
 
 def test_standardized_training_pipeline_init():

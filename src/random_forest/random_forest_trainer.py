@@ -1,7 +1,7 @@
 import pandas as pd
 from nba_api.stats.endpoints import playergamelog
 from nba_api.stats.library.parameters import SeasonAll
-from src.utils.shared_utils import PlayerUtils, DataProcessor
+from utils.shared_utils import PlayerUtils, DataProcessor
 
 class StandardizedTrainingPipeline:
     """Standardized training pipeline that works with any NBA player"""
