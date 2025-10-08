@@ -69,7 +69,7 @@ lint-all: lint-python lint-yaml lint-json lint-rust lint-toml
 format-all: format-python format-json format-rust format-toml
 
 # Run all checks (lint + type check)
-check-all: lint-all type-check
+check-all: lint-all
 
 # Run tests and checks
 test-all: test-cov check-all

@@ -1,80 +1,222 @@
+from sklearn.ensemble import RandomForestClassifier, VotingClassifier
+from sklearn.model_selection import train_test_split, cross_val_score, KFold
+from sklearn.metrics import accuracy_score
 import pandas as pd
-from nba_api.stats.endpoints import playergamelog
-from nba_api.stats.library.parameters import SeasonAll
-from utils.shared_utils import PlayerUtils, DataProcessor
+import numpy as np
+import pickle
+import joblib
+import os
+from datetime import datetime
 
-class StandardizedTrainingPipeline:
-    """Standardized training pipeline that works with any NBA player"""
-    
-    def __init__(self, player_name, seasons_range=('2014-15', '2022-23')):
-        """
-        Initialize training pipeline for a specific player
+class RandomForestTrainer:
+    def __init__(self, data, target, shuffle_data=True):
+        self.data = pd.read_csv(data)
+        if shuffle_data:
+            self.data = self.data.sample(frac=1, random_state=42).reset_index(drop=True)
+        self.target = target
+        self.model = RandomForestClassifier()
+
+
+    def train_model(self):
+        # Drop target and date columns
+        X = self.data.drop([self.target, "GAME_DATE"], axis=1)
         
-        Args:
-            player_name (str): Full name of the NBA player
-            seasons_range (tuple): Start and end seasons for team stats
-        """
-        self.player_name = player_name
-        self.seasons_range = seasons_range
+        # Drop Franz's current game stats to prevent data leakage
+        current_game_stats = [
+            "MIN", "FGM", "FGA", "FG_PCT", "FG3M", "FG3A", "FG3_PCT", 
+            "FTM", "FTA", "FT_PCT", "OREB", "DREB", "REB", "AST", 
+            "STL", "BLK", "TOV", "PF", "PTS", "PLUS_MINUS", "VIDEO_AVAILABLE",  
+
+        ]
+
+        cols_to_drop = [col for col in current_game_stats if col in X.columns]
+        if cols_to_drop:
+            print(f"Dropping current game stats: {cols_to_drop}")
+        X = X.drop(cols_to_drop, axis=1)
+
+        X = X.select_dtypes(include=[np.number])
+        y = self.data[self.target]
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        self.model.fit(X_train, y_train)
+        y_pred = self.model.predict(X_test)
+        accuracy = accuracy_score(y_test, y_pred)
+        print(f"Accuracy: {accuracy}")
+        print(f"Dataset size: {len(self.data)}")
+        print(f"Test size: {len(X_test)}")
+        print(f"Class distribution:\n{y.value_counts()}")
+        print(f"Features used: {len(X.columns)}")
+
+    def cross_validate_model(self, cv_folds=5, scoring='accuracy'):
+        """Perform cross-validation on the model"""
+        # Prepare features same as train_model
+        X = self.data.drop([self.target, "GAME_DATE"], axis=1)
         
-        # Get player information
-        try:
-            self.player_id = PlayerUtils.get_player_id(player_name)
-            self.player_team_abbr = PlayerUtils.get_player_team(self.player_id)
-            print(f"Initialized training for {player_name} (ID: {self.player_id}, Team: {self.player_team_abbr})")
-        except ValueError as e:
-            raise ValueError(f"Failed to initialize player: {str(e)}")
+        # Drop Franz's current game stats to prevent data leakage
+        current_game_stats = [
+            "MIN", "FGM", "FGA", "FG_PCT", "FG3M", "FG3A", "FG3_PCT",
+            "FTM", "FTA", "FT_PCT", "OREB", "DREB", "REB", "AST",
+            "STL", "BLK", "TOV", "PF", "PTS", "PLUS_MINUS", "VIDEO_AVAILABLE",
+        ]
         
-        # Initialize data processor
-        self.data_processor = DataProcessor(self.player_id, self.player_team_abbr)
-        self.training_data = None
-        self.model = None
-    
-    def get_career_stats(self):
-        """Get career statistics for the player"""
-        try:
-            career = playergamelog.PlayerGameLog(player_id=self.player_id, season=SeasonAll.all)
-            return career.get_data_frames()[0]
-        except Exception as e:
-            raise ValueError(f"Error getting career stats: {str(e)}")
-    
-    def adjusted_projected_line(self, row, stats_df):
-        """Calculate adjusted projected line based on recent performance"""
-        try:
-            last_10_pts = stats_df['PTS'].shift(1).loc[max(0, row.name-10):row.name-1]
-            under = sum(pts < row['Projected_Line'] for pts in last_10_pts if pd.notna(pts))
-            if under < 6:
-                return row['Projected_Line'] + 0.5
+        cols_to_drop = [col for col in current_game_stats if col in X.columns]
+        if cols_to_drop:
+            print(f"Dropping current game stats for CV: {cols_to_drop}")
+        X = X.drop(cols_to_drop, axis=1)
+        
+        X = X.select_dtypes(include=[np.number])
+        y = self.data[self.target]
+        
+        # Perform cross-validation
+        kfold = KFold(n_splits=cv_folds, shuffle=True, random_state=42)
+        cv_scores = cross_val_score(self.model, X, y, cv=kfold, scoring=scoring)
+        print(f"\n=== {cv_folds}-Fold Cross-Validation Results ===")
+        print(f"Individual fold scores: {cv_scores}")
+        print(f"Mean CV Score: {cv_scores.mean():.4f}")
+        print(f"Standard Deviation: {cv_scores.std():.4f}")
+        print(f"95% Confidence Interval: [{cv_scores.mean() - 2*cv_scores.std():.4f}, {cv_scores.mean() + 2*cv_scores.std():.4f}]")
+        
+        return cv_scores
+
+    def cross_validate_with_models(self, cv_folds=5, return_best=True, create_ensemble=False):
+        """Cross-validation that returns the actual trained models"""
+        # Prepare features
+        X = self.data.drop([self.target, "GAME_DATE"], axis=1)
+        
+        current_game_stats = [
+            "MIN", "FGM", "FGA", "FG_PCT", "FG3M", "FG3A", "FG3_PCT",
+            "FTM", "FTA", "FT_PCT", "OREB", "DREB", "REB", "AST",
+            "STL", "BLK", "TOV", "PF", "PTS", "PLUS_MINUS", "VIDEO_AVAILABLE"
+        ]
+        
+        cols_to_drop = [col for col in current_game_stats if col in X.columns]
+        X = X.drop(cols_to_drop, axis=1)
+        X = X.select_dtypes(include=[np.number])
+        y = self.data[self.target]
+        
+        # Manual cross-validation to get the trained models
+        kfold = KFold(n_splits=cv_folds, shuffle=True, random_state=42)
+        
+        fold_models = []
+        fold_scores = []
+        
+        print(f"\n=== Training {cv_folds} models via Cross-Validation ===")
+        
+        for fold_idx, (train_idx, val_idx) in enumerate(kfold.split(X, y)):
+            # Split data for this fold
+            X_train_fold, X_val_fold = X.iloc[train_idx], X.iloc[val_idx]
+            y_train_fold, y_val_fold = y.iloc[train_idx], y.iloc[val_idx]
+            
+            fold_model = RandomForestClassifier(random_state=42)
+            fold_model.fit(X_train_fold, y_train_fold)
+            
+            # Evaluate on validation set
+            y_pred = fold_model.predict(X_val_fold)
+            fold_accuracy = accuracy_score(y_val_fold, y_pred)
+            
+            fold_models.append(fold_model)
+            fold_scores.append(fold_accuracy)
+            
+            print(f"Fold {fold_idx + 1}: Accuracy = {fold_accuracy:.4f}")
+        
+        print(f"Mean CV Accuracy: {np.mean(fold_scores):.4f} (±{np.std(fold_scores):.4f})")
+        
+        if create_ensemble:
+            estimators = [(f'model_{i}', model) for i, model in enumerate(fold_models)]
+            ensemble_model = VotingClassifier(estimators=estimators, voting='soft')
+
+            ensemble_model.fit(X, y)
+            self.model = ensemble_model
+            print("Created ensemble model from all CV folds")
+            
+            return fold_scores, fold_models, ensemble_model
+        
+        elif return_best:
+            best_idx = np.argmax(fold_scores)
+            best_model = fold_models[best_idx]
+            best_score = fold_scores[best_idx]
+            
+            best_model.fit(X, y)
+            self.model = best_model
+            
+            print(f"Selected best model from fold {best_idx + 1} (accuracy: {best_score:.4f})")
+            return fold_scores, fold_models, best_model
+        
+        else:
+            return fold_scores, fold_models
+
+    def load_model(self, model_path, method='auto'):
+        """Load a saved model from disk"""
+        if method == 'auto':
+            # Auto-detect based on file extension
+            if model_path.endswith('.joblib'):
+                method = 'joblib'
+            elif model_path.endswith('.pkl'):
+                method = 'pickle'
             else:
-                return row['Projected_Line'] - 0.5
-        except Exception:
-            return row['Projected_Line']
+                raise ValueError("Cannot auto-detect method. Specify 'joblib' or 'pickle'")
+        
+        if method == 'joblib':
+            self.model = joblib.load(model_path)
+            print(f"Model loaded using joblib: {model_path}")
+        
+        elif method == 'pickle':
+            with open(model_path, 'rb') as f:
+                self.model = pickle.load(f)
+            print(f"Model loaded using pickle: {model_path}")
+        
+        else:
+            raise ValueError("Method must be 'joblib' or 'pickle'")
+
+    def save_model_with_metadata(self, model_name="franz_wagner_rf", accuracy=None):
+        """Save model with metadata for easy tracking"""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        model_path = f"models/{model_name}_{timestamp}.joblib"
+        
+        # Save the model
+        os.makedirs('models', exist_ok=True)
+        joblib.dump(self.model, model_path)
+        
+        # Save metadata
+        metadata = {
+            'model_name': model_name,
+            'model_path': model_path,
+            'timestamp': timestamp,
+            'accuracy': accuracy,
+            'target': self.target,
+            'dataset_size': len(self.data)
+        }
+        
+        # Add model-specific info
+        if hasattr(self.model, 'estimators_'):
+            # VotingClassifier ensemble
+            metadata['model_type'] = 'VotingClassifier'
+            metadata['n_estimators'] = len(self.model.estimators_)
+            metadata['voting'] = getattr(self.model, 'voting', 'unknown')
+        elif hasattr(self.model, 'n_estimators'):
+            # Single RandomForestClassifier
+            metadata['model_type'] = 'RandomForestClassifier'
+            metadata['n_estimators'] = self.model.n_estimators
+        else:
+            metadata['model_type'] = str(type(self.model).__name__)
+        
+        metadata_path = f"models/{model_name}_{timestamp}_metadata.json"
+        import json
+        with open(metadata_path, 'w') as f:
+            json.dump(metadata, f, indent=4)
+        
+        print(f"Model saved: {model_path}")
+        print(f"Metadata saved: {metadata_path}")
+        return model_path, metadata_path
+
+
+if __name__ == "__main__":
+    trainer = RandomForestTrainer("../data_generation/Franz_Wagner_training_data.csv", "Beats_Projected_Line", shuffle_data=True)
     
-    def prepare_training_data(self):
-        """Prepare and process training data"""
-        print("Loading career statistics...")
-        stats = self.get_career_stats()
-        
-        # Process common features
-        stats = self.data_processor.process_common_features(stats)
-        
-        # Create projected line based on rolling average
-        stats['Projected_Line'] = stats['PTS'].shift(1).rolling(window=10).mean()
-        stats['Projected_Line'] = stats.apply(lambda row: self.adjusted_projected_line(row, stats), axis=1)
-        stats['Beats_Projected_Line'] = (stats['PTS'] > stats['Projected_Line']).astype(int)
-        
-        # Add lag features
-        stats = self.data_processor.add_lag_features(stats)
-        
-        # Drop rows with NaN values
-        stats = stats.dropna()
-        
-        # Merge with team statistics
-        stats = self.data_processor.merge_team_stats(stats, self.seasons_range[0], self.seasons_range[1])
-        
-        # Add rolling features
-        stats = self.data_processor.add_rolling_features(stats, window=20)
-        
-        self.training_data = stats
-        print(f"Training data prepared: {len(stats)} games")
-        return stats
+    # # Option 1: Get the best model from cross-validation
+    cv_scores, all_models, best_model = trainer.cross_validate_with_models(return_best=True)
+    mean_accuracy = np.mean(cv_scores)
+    trainer.save_model_with_metadata("franz_wagner_best", accuracy=mean_accuracy)
+
+    # Option 2: Create ensemble from all CV models
+    # cv_scores, all_models, ensemble = trainer.cross_validate_with_models(create_ensemble=True)
+    # trainer.save_model_with_metadata("franz_wagner_ensemble", accuracy=np.mean(cv_scores))
