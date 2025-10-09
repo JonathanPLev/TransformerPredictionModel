@@ -32,6 +32,11 @@ coverage-report = "pytest --cov=. --cov-report=html"
 pythonpath = ["src"]
 testpaths = ["src", "tests"]
 
+[tool.uv]
+dev-dependencies = [
+    "yamlfix>=1.18.0",
+]
+
 
 [dependency-groups]
 dev = [

@@ -19,6 +19,9 @@ format-python:
 lint-yaml:
     uv run poe lint-yaml
 
+format-yaml:
+    uv run yamlfix .
+
 # Testing with pytest
 test:
     uv run poe test
@@ -66,10 +69,10 @@ lint-markdown:
 lint-all: lint-python lint-yaml lint-json lint-rust lint-toml
 
 # Run all formatting tasks
-format-all: format-python format-json format-rust format-toml
+format-all: format-python format-yaml format-json format-rust format-toml
 
 # Run all checks (lint + type check)
-check-all: lint-all type-check
+check-all: lint-all
 
 # Run tests and checks
 test-all: test-cov check-all

@@ -102,16 +102,16 @@ class DataProcessor:
         
         return season
     
-    def get_team_stats(self, start_szn, end_szn, data_path="training_data/team_stats_traditional_rs.csv"):
+    def get_team_stats(self, start_szn, end_szn, data_path="training_data/team_stats_advanced_rs.csv"):
         """Load and filter team stats data"""
         try:
             # Try multiple possible paths for team stats
             possible_paths = [
                 data_path,
-                "NBA-dataset-stats-player-team/team/team_stats_advanced_rs.csv",
-                "../NBA-dataset-stats-player-team/team/team_stats_advanced_rs.csv",
-                "NBA-dataset-stats-player-team/team/team_stats_misc_rs.csv",
-                "../NBA-dataset-stats-player-team/team/team_stats_misc_rs.csv"
+                "constants/NBA-dataset-stats-player-team/team/team_stats_advanced_rs.csv",
+                "../constants/NBA-dataset-stats-player-team/team/team_stats_advanced_rs.csv",
+                "constants/NBA-dataset-stats-player-team/team/team_stats_misc_rs.csv",
+                "../constants/NBA-dataset-stats-player-team/team/team_stats_misc_rs.csv"
             ]
             
             team_df = None
@@ -147,22 +147,22 @@ class DataProcessor:
         except Exception as e:
             raise ValueError(f"Error getting game log for player {self.player_id}: {str(e)}")
     
-    def create_matchup_columns(self, df):
-        """Create all possible matchup columns for one-hot encoding"""
-        existing_columns = set(df.columns)
+    def create_opponent_team_columns(self, df):
+        """Create opponent team one-hot encoding columns"""
+        # Extract opponent team abbreviation from matchup
+        df['versus_team_abbr'] = df['ORIGINAL_MATCHUP'].str[-3:]
         
-        # Generate the full set of required columns based on team_name_map and player's team
-        required_columns = set(
-            [f"MATCHUP_{self.player_team_abbr} @ {abbr}" for abbr in team_name_map.keys()] +
-            [f"MATCHUP_{self.player_team_abbr} vs. {abbr}" for abbr in team_name_map.keys()]
-        )
+        # Create one-hot encoding for all teams
+        for team_abbr in team_name_map.keys():
+            df[team_abbr] = 0
         
-        # Add missing columns
-        missing_columns = required_columns - existing_columns
-        for col in missing_columns:
-            df[col] = False
+        # Set the opponent team to 1
+        for idx, row in df.iterrows():
+            opponent = row['versus_team_abbr']
+            if opponent in team_name_map.keys():
+                df.at[idx, opponent] = 1
         
-        print(f"Added {len(missing_columns)} missing matchup columns for team {self.player_team_abbr}")
+        print(f"Created opponent team one-hot encoding with {len(team_name_map)} team columns")
         return df
     
     def process_common_features(self, df):
@@ -178,11 +178,8 @@ class DataProcessor:
         # Store original matchup before encoding
         df['ORIGINAL_MATCHUP'] = df['MATCHUP']
         
-        # One-hot encode matchups
-        df = pd.get_dummies(df, columns=['MATCHUP'], drop_first=True)
-        
-        # Add missing matchup columns
-        df = self.create_matchup_columns(df)
+        # Create opponent team one-hot encoding
+        df = self.create_opponent_team_columns(df)
         
         # Extract month
         df['Month'] = df['GAME_DATE'].dt.month
@@ -195,8 +192,7 @@ class DataProcessor:
         # Minutes from last game
         df['Minutes_LastGame'] = df['MIN'].shift(1)
         
-        # Opponent team processing
-        df['versus_team_abbr'] = df['ORIGINAL_MATCHUP'].str[-3:]
+        # Create team mapping for merge operations (still needed for team stats merging)
         df['versus_team'] = df['versus_team_abbr'].map(team_name_map)
         
         # Create team ID mapping
