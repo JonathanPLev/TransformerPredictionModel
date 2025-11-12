@@ -1,0 +1,40 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_USER: line_dancer
+      POSTGRES_PASSWORD: sportsbook_data
+      POSTGRES_DB: nba_deeplearning
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+
+  airflow:
+    build: .
+    depends_on:
+      - postgres
+    restart: always
+    environment:
+      - DB_USERNAME=line_dancer
+      - DB_PASSWORD=sportsbook_data
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=nba_deeplearning
+      - AIRFLOW__CORE__EXECUTOR=SequentialExecutor
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=False
+      - AIRFLOW__WEBSERVER__AUTHENTICATE=True
+      - AIRFLOW__SIMPLE_AUTH_MANAGER__ADMIN_USERNAME=admin
+      - AIRFLOW__SIMPLE_AUTH_MANAGER__ADMIN_PASSWORD=M7fhanqeB2mUPSpe
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags:ro
+      - ./airflow_pipeline:/opt/airflow/airflow_pipeline:ro
+
+volumes:
+  postgres_data:
