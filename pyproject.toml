@@ -7,8 +7,13 @@ requires-python = ">=3.12"
 dependencies = [
     "nba-api>=1.10.2",
     "scikit-learn>=1.7.2",
+    "requests==2.31.0",
+    "pandas==2.1.4",
+    "psycopg2-binary==2.9.9",
+    "SQLAlchemy==1.4.52",
+    "python-dotenv==1.0.1",
+    "python-dateutil==2.8.2"
 ]
-
 
 [tool.poe.tasks]
 # Python linting and formatting
