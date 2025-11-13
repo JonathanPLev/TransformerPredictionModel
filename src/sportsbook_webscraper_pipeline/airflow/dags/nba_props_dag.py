@@ -18,7 +18,8 @@ airflow apiserver --port 8080
 from airflow.models.dag import DAG
 from airflow.providers.standard.operators.python import PythonOperator
 from datetime import datetime, timedelta
-import sys, os
+import sys
+import os
 
 API_SCRIPTS_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../airflow_pipeline/api_scripts'))
 if API_SCRIPTS_PATH not in sys.path:

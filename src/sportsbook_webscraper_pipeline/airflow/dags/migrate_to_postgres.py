@@ -1,5 +1,4 @@
 from sqlalchemy import create_engine, text as sql_text, Table, MetaData
-import pandas as pd
 import os
 import sys
 from dotenv import load_dotenv
@@ -55,7 +54,7 @@ def __main__(table_name):
     dfs = [get_bettingpros_df(), get_prizepicks_df(), get_draftedge_df()]
     for df in dfs:
         if df.empty:
-            print(f"Skipping empty DataFrame...")
+            print("Skipping empty DataFrame...")
             continue
         if not check_df_columns(df):
             raise Exception(f"df columns do not match WITH {table_name} attributes.")

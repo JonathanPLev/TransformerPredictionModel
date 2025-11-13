@@ -103,7 +103,7 @@ def filter_projections(data):
                 'line_type': attrs.get('stat_type')
             })
         
-        except Exception as e:
+        except Exception:
             continue
     
     return results
