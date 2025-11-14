@@ -43,9 +43,6 @@ def filter_projections(data):
     
     players = {p['id']: p for p in included if p['type'] == 'new_player'}
     leagues = {l['id']: l for l in included if l['type'] == 'league'}
-    stat_types = {s['id']: s for s in included if s['type'] == 'stat_type'}
-    events = {e['id']: e for e in included if e['type'] == 'event'}
-    teams = {t['id']: t for t in included if t['type'] == 'team'}
     
     time_scraped = datetime.now().isoformat()
     results = []
@@ -88,9 +85,6 @@ def filter_projections(data):
             
             if any(sep in player_name for sep in [' & ', ' and ', ' + ', ',']):
                 continue
-            
-            # Extract opponent
-            description = attrs.get('description', '')
             
             results.append({
                 'player_name': player_name,
