@@ -2,15 +2,16 @@ from sqlalchemy import create_engine, text as sql_text, Table, MetaData
 import os
 import sys
 from dotenv import load_dotenv
+from airflow_pipeline.api_scripts.fetch_bettingpros import get_bettingpros_df
+from airflow_pipeline.api_scripts.fetch_prizepicks import get_prizepicks_df
+from airflow_pipeline.api_scripts.fetch_draftedge import get_draftedge_df
 
 # Ensure project root is importable when executed by Airflow or standalone
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from airflow_pipeline.api_scripts.fetch_bettingpros import get_bettingpros_df
-from airflow_pipeline.api_scripts.fetch_prizepicks import get_prizepicks_df
-from airflow_pipeline.api_scripts.fetch_draftedge import get_draftedge_df
+
 
 load_dotenv()
 db_username = os.getenv("DB_USERNAME")
