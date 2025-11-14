@@ -41,8 +41,8 @@ def filter_projections(data):
     projections = data.get('data', [])
     included = data.get('included', [])
     
-    players = {p['id']: p for p in included if p['type'] == 'new_player'}
-    leagues = {l['id']: l for l in included if l['type'] == 'league'}
+    players = {player['id']: player for player in included if player['type'] == 'new_player'}
+    leagues = {league["id"]: league for league in included if league["type"] == "league"}
     
     time_scraped = datetime.now().isoformat()
     results = []

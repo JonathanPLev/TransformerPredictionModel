@@ -1,20 +1,3 @@
-"""
-To run the dag in ../dag_setup
-    - set AIRFLOW_HOME=~/CursorProjects/webscrape/airflow
-    - airflow scheduler
-
-For airflow UI
-airflow apiserver --port 8080
-"""
-"""
-To run the dag in ../dag_setup
-    - set AIRFLOW_HOME=~/CursorProjects/webscrape/airflow
-    - airflow standalone
-
-For airflow UI
-airflow apiserver --port 8080
-"""
-
 from airflow.models.dag import DAG
 from airflow.providers.standard.operators.python import PythonOperator
 from datetime import datetime, timedelta
@@ -25,7 +8,7 @@ API_SCRIPTS_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 if API_SCRIPTS_PATH not in sys.path:
     sys.path.insert(0, API_SCRIPTS_PATH)
 
-from migrate_to_postgres import __main__ as migrate_to_postgres_main
+from migrate_to_postgres import __main__ as migrate_to_postgres_main # noqa: E402
 
 default_args = {
     'owner': 'LineDancers',
