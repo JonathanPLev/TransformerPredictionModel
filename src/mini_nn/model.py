@@ -65,7 +65,6 @@ X = df.drop(
 X = X.select_dtypes(include=[np.number])
 y = df["Beats_Projected_Line"]
 
-# handle Nan
 X = X.fillna(0)
 
 X_train, X_test, y_train, y_test = train_test_split(
