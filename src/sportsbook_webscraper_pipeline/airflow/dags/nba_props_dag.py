@@ -3,12 +3,16 @@ from airflow.providers.standard.operators.python import PythonOperator
 from datetime import datetime, timedelta
 import sys
 import os
+import logging
 
-API_SCRIPTS_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../airflow_pipeline/api_scripts'))
+API_SCRIPTS_PATH = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "../../airflow_pipeline/api_scripts")
+)
 if API_SCRIPTS_PATH not in sys.path:
     sys.path.insert(0, API_SCRIPTS_PATH)
 
-from migrate_to_postgres import __main__ as migrate_to_postgres_main # noqa: E402
+# `# noqa: E402` tells the linter to ignore this specific rule here (need API_SCRIPTS_PATH before importing)
+from migrate_to_postgres import __main__ as migrate_to_postgres_main # noqa: E402 
 
 default_args = {
     'owner': 'LineDancers',
@@ -24,7 +28,7 @@ dag = DAG(
     dag_id='nba_sportsbook_pipeline',
     default_args=default_args,
     description='Daily NBA sportsbook data scraping and collection pipeline',
-    schedule="0 22 * * *",  # <--- use cron string directly
+    schedule="0 22 * * *", 
     catchup=False,
     tags=['nba', 'betting', 'data-pipeline'],
 )
@@ -39,5 +43,7 @@ task_migrate_to_postgres = PythonOperator(
     dag=dag,
 )
 
-# Only one task now, no fetch tasks needed
-print("File ran?")
+check = logging.getLogger(__name__)
+
+check.info("NBA props DAG initialized.")
+check.debug("DAG file loaded successfully.")

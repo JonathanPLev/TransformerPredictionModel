@@ -5,13 +5,13 @@ services:
     image: postgres:15
     restart: always
     environment:
-      POSTGRES_USER: line_dancer
-      POSTGRES_PASSWORD: sportsbook_data
-      POSTGRES_DB: nba_deeplearning
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5433:5432"
+      - "${POSTGRES_EXTERNAL_PORT}:5432"
 
   airflow:
     build: .
@@ -19,19 +19,21 @@ services:
       - postgres
     restart: always
     environment:
-      - DB_USERNAME=line_dancer
-      - DB_PASSWORD=sportsbook_data
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=nba_deeplearning
-      - AIRFLOW__CORE__EXECUTOR=SequentialExecutor
-      - AIRFLOW__CORE__LOAD_EXAMPLES=False
-      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=False
-      - AIRFLOW__WEBSERVER__AUTHENTICATE=True
-      - AIRFLOW__SIMPLE_AUTH_MANAGER__ADMIN_USERNAME=admin
-      - AIRFLOW__SIMPLE_AUTH_MANAGER__ADMIN_PASSWORD=M7fhanqeB2mUPSpe
+      DB_USERNAME=${POSTGRES_USER}
+      DB_PASSWORD=${POSTGRES_PASSWORD}
+      DB_HOST=postgres
+      DB_PORT=5432
+      DB_NAME=${POSTGRES_DB}
+
+      AIRFLOW__CORE__EXECUTOR=SequentialExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES=False
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=False
+
+      AIRFLOW__WEBSERVER__AUTHENTICATE=True
+      AIRFLOW__SIMPLE_AUTH_MANAGER__ADMIN_USERNAME=${AIRFLOW_ADMIN_USERNAME}
+      AIRFLOW__SIMPLE_AUTH_MANAGER__ADMIN_PASSWORD=${AIRFLOW_ADMIN_PASSWORD}
     ports:
-      - "8080:8080"
+      - "${AIRFLOW_PORT}:8080"
     volumes:
       - ./airflow/dags:/opt/airflow/dags:ro
       - ./airflow_pipeline:/opt/airflow/airflow_pipeline:ro

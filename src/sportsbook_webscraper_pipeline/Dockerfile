@@ -6,8 +6,9 @@ RUN apt-get update && apt-get install -y git curl && rm -rf /var/lib/apt/lists/*
 USER airflow
 WORKDIR /opt/airflow
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY pyproject.toml .
+COPY uv.lock .
+RUN pip install uv && uv pip install --system .
 
 COPY airflow/dags /opt/airflow/dags
 COPY airflow_pipeline /opt/airflow/airflow_pipeline

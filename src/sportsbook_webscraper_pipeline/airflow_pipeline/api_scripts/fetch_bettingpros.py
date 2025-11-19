@@ -2,6 +2,7 @@ import requests
 import pandas as pd
 from datetime import datetime
 import sys
+import time
 
 def fetch_nba_props():
     """Fetch NBA props from BettingPros API"""
@@ -19,14 +20,20 @@ def fetch_nba_props():
         'include_markets': 'true',
         'include_books': 'true'
     }
+
+    RETRIES = 5
     
-    try:
-        response = requests.get(url, params=params, timeout=30)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching data: {e}", file=sys.stderr)
-        return None
+    for attempt in range(1, RETRIES + 1):
+        try:
+            response = requests.get(url, params=params, timeout=30)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"Attempt {attempt} failed: {e}", file=sys.stderr)
+            if attempt == RETRIES:
+                print("All retries failed.", file=sys.stderr)
+                return None
+            time.sleep(attempt * 2) 
 
 def parse_props(data):
     """
