@@ -13,11 +13,11 @@ if PROJECT_ROOT not in sys.path:
 
 load_dotenv()
 
-db_username = os.getenv("DB_USERNAME")
-db_password = os.getenv("DB_PASSWORD")
+db_username = os.getenv("POSTGRES_USER")
+db_password = os.getenv("POSTGRES_PASSWORD")
 db_host = os.getenv("DB_HOST", "localhost")
-db_port = os.getenv("DB_PORT", "5432")
-db_name = os.getenv("DB_NAME", "nba_deeplearning")
+db_port = os.getenv("POSTGRES_EXTERNAL_PORT", "5432")
+db_name = os.getenv("POSTGRES_DB")
 
 url = URL.create(
     drivername="postgresql+psycopg2",

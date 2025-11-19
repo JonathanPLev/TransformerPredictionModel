@@ -3,10 +3,14 @@ import pandas as pd
 from datetime import datetime
 import sys
 import time
+import os
+from dotenv import load_dotenv
+
+load_dotenv() 
 
 def fetch_nba_props():
     """Fetch NBA props from BettingPros API"""
-    url = "https://api.bettingpros.com/v3/props"
+    url = BETTINGPROS_API_URL
     
     params = {
         'limit': 2000,
