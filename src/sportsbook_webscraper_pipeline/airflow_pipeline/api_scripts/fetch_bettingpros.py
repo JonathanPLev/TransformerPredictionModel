@@ -7,6 +7,7 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv() 
+BETTINGPROS_API_URL = os.getenv("BETTINGPROS_API_URL")
 
 def fetch_nba_props():
     """Fetch NBA props from BettingPros API"""
