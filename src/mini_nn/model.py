@@ -5,13 +5,13 @@ import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+from pathlib import Path
 
-# # of epochs for the time being
 RANGE = 100
 
 
 class PredictionModel(nn.Module):
-    def __init__(self, input_size, hidden1=128, hidden2=64, output_size=1):
+    def __init__(self, input_size, hidden1=128, hidden2=64, hidden_3=32, output_size=1):
         super().__init__()
         self.nn = nn.Sequential(
             nn.Linear(input_size, hidden1),
@@ -20,7 +20,10 @@ class PredictionModel(nn.Module):
             nn.Linear(hidden1, hidden2),
             nn.ReLU(),
             nn.Dropout(0.3),
-            nn.Linear(hidden2, output_size),
+            nn.Linear(hidden2, hidden_3),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(hidden_3, output_size),
         )
 
     def forward(self, x):
@@ -28,8 +31,14 @@ class PredictionModel(nn.Module):
 
 
 criterion = nn.BCEWithLogitsLoss()  # binary classification
-dataset_path = "../data_generation/NBA_Multi_Player_Training_Data.csv"
-mapping_path = "../data_generation/player_id_mapping.csv"
+
+# Resolve data/model paths so the script can be run from any CWD.
+MODULE_ROOT = Path(__file__).resolve().parent  # src/mini_nn
+DATA_DIR = MODULE_ROOT.parent / "data_generation"
+MODELS_DIR = MODULE_ROOT / "models"
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
+dataset_path = DATA_DIR / "NBA_Multi_Player_Training_Data.csv"
+mapping_path = DATA_DIR / "player_id_mapping.csv"
 
 df = pd.read_csv(dataset_path)
 current_game_stats = [
@@ -82,7 +91,7 @@ y_test_tensor = torch.FloatTensor(y_test.values).unsqueeze(1)
 
 input_size = X_train.shape[1]
 
-model = PredictionModel(input_size=input_size, hidden1=64, hidden2=32)
+model = PredictionModel(input_size=input_size, hidden1=128, hidden2=64, hidden_3=32)
 optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
 
 best_test_loss = float("inf")
@@ -121,17 +130,17 @@ for epoch in range(RANGE):
 
     if (epoch + 1) % 10 == 0:
         print(
-            f"Epoch [{epoch+1}/{RANGE}], Train Loss: {loss.item():.4f}, Test Loss: {test_loss.item():.4f}, Test Accuracy: {accuracy.item():.4f}"
+            f"Epoch [{epoch + 1}/{RANGE}], Train Loss: {loss.item():.4f}, Test Loss: {test_loss.item():.4f}, Test Accuracy: {accuracy.item():.4f}"
         )
 
     if patience_counter >= patience:
-        print(f"\nEarly stopping at epoch {epoch+1}")
+        print(f"\nEarly stopping at epoch {epoch + 1}")
         print(f"Best test loss: {best_test_loss:.4f} at epoch {best_epoch}")
         print(f"Test Accuracy at best model: {best_accuracy:.4f}")
 
         model.load_state_dict(best_model_state)
 
-        model_save_path = "models/best_model.pth"
+        model_save_path = MODELS_DIR / "best_model.pth"
         save_dict = {
             "epoch": best_epoch,
             "model_state_dict": model.state_dict(),
