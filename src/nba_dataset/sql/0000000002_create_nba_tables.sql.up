@@ -1,0 +1,78 @@
+-- Migration: Create NBA tables (games, injury_data, player_statistics)
+-- This migration creates the core tables for the NBA data warehouse
+
+-- Check if tables already exist and raise error if they do
+DO $$
+BEGIN
+    IF EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'games') THEN
+        RAISE EXCEPTION 'Table games already exists. Cannot re-create existing table.';
+    END IF;
+    
+    IF EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'injury_data') THEN
+        RAISE EXCEPTION 'Table injury_data already exists. Cannot re-create existing table.';
+    END IF;
+    
+    IF EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'player_statistics') THEN
+        RAISE EXCEPTION 'Table player_statistics already exists. Cannot re-create existing table.';
+    END IF;
+END $$;
+
+-- Create games table
+CREATE TABLE games (
+    game_id INT PRIMARY KEY,
+    home_team_city TEXT,
+    home_team_name TEXT,
+    away_team_city TEXT,
+    away_team_name TEXT
+);
+
+-- Create injury_data table
+CREATE TABLE injury_data (
+    injury_id SERIAL PRIMARY KEY,
+    date DATE,
+    relinquished TEXT,
+    spacer TEXT,
+    notes TEXT
+);
+
+-- Create player_statistics table
+CREATE TABLE player_statistics (
+    player_stat_id SERIAL PRIMARY KEY,
+    first_name TEXT,
+    last_name TEXT,
+    person_id INT,
+    game_id INT,
+    game_date DATE,
+    player_team_city TEXT,
+    player_team_name TEXT,
+    opponent_team_city TEXT,
+    opponent_team_name TEXT,
+    game_type TEXT,
+    game_label TEXT,
+    game_sublabel TEXT,
+    series_game_number INT,
+    win BOOLEAN,
+    home BOOLEAN,
+    num_minutes REAL,
+    points INT,
+    assists INT,
+    blocks INT,
+    steals INT,
+    field_goals_attempted INT,
+    field_goals_made INT,
+    field_goals_percentage REAL,
+    three_pointers_attempted INT,
+    three_pointers_made INT,
+    three_pointers_percentage REAL,
+    free_throws_attempted INT,
+    free_throws_made INT,
+    free_throws_percentage REAL,
+    rebounds_defensive INT,
+    rebounds_offensive INT,
+    rebounds_total INT,
+    fouls_personal INT,
+    turnovers INT,
+    plus_minus_points INT,
+    FOREIGN KEY (game_id) REFERENCES games(game_id)
+);
+

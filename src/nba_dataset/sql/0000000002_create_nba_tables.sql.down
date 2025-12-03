@@ -1,0 +1,13 @@
+-- Migration: Drop NBA tables (games, injury_data, player_statistics)
+-- This migration drops the core tables for the NBA data warehouse
+-- Tables are dropped in reverse order to respect foreign key constraints
+
+-- Drop player_statistics first (has foreign key to games)
+DROP TABLE IF EXISTS player_statistics CASCADE;
+
+-- Drop injury_data
+DROP TABLE IF EXISTS injury_data CASCADE;
+
+-- Drop games last (referenced by player_statistics)
+DROP TABLE IF EXISTS games CASCADE;
+
