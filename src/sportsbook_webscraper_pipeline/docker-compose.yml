@@ -38,5 +38,20 @@ services:
       - ./airflow/dags:/opt/airflow/dags:ro
       - ./airflow_pipeline:/opt/airflow/airflow_pipeline:ro
 
+  db-migrate:
+    image: postgres:15
+    depends_on:
+      - postgres
+    restart: "no"
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./sql:/sql:ro
+    entrypoint: ["/bin/bash","-lc"]
+    command: >
+      psql -h postgres -U ${POSTGRES_USER} -d ${POSTGRES_DB} -f /sql/up.sql
+    profiles: ["migrate"]
+
+
 volumes:
   postgres_data:

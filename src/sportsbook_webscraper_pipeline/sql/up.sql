@@ -1,3 +1,5 @@
+/* docker compose --profile migrate run --rm db-migrate */
+
 CREATE TABLE IF NOT EXISTS player_lines (
   id BIGSERIAL PRIMARY KEY,
 
