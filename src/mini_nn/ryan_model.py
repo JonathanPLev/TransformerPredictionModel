@@ -8,7 +8,6 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import f1_score, roc_auc_score
 from torch.utils.data import TensorDataset, DataLoader
 from pathlib import Path
-import sys
 
 
 EPOCHS = 150            
@@ -54,7 +53,6 @@ def main():
     CURRENT_DIR = Path(__file__).resolve().parent
     DATA_DIR = CURRENT_DIR.parent / "data_generation"
     dataset_path = DATA_DIR / "NBA_Multi_Player_Training_Data.csv"
-    mapping_path = DATA_DIR / "player_id_mapping.csv"
 
     df = pd.read_csv(dataset_path)
     
@@ -152,8 +150,6 @@ def main():
 
         if val_f1 > best_val_f1:
             best_val_f1 = val_f1
-            best_val_auc = val_auc
-            best_accuracy = val_accuracy
             best_epoch = epoch + 1
             best_model_state = model.state_dict().copy()
             patience_counter = 0
