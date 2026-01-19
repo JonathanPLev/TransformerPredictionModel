@@ -145,7 +145,6 @@ def main():
         
         val_accuracy = (all_preds == all_labels).mean()
         val_f1 = f1_score(all_labels, all_preds)
-        val_auc = roc_auc_score(all_labels, all_probs)
         
 
         if val_f1 > best_val_f1:
