@@ -8,6 +8,7 @@ dependencies = [
     "nba-api>=1.10.2",
     "scikit-learn>=1.7.2",
     "gdown",
+    "torch>=2.9.0",
 ]
 
 
