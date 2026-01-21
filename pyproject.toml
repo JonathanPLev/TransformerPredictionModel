@@ -13,6 +13,7 @@ dependencies = [
     "SQLAlchemy==1.4.52",
     "python-dotenv==1.0.1",
     "python-dateutil==2.8.2"
+    "torch>=2.9.0",
 ]
 
 [tool.poe.tasks]
