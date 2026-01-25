@@ -4,17 +4,19 @@ from datetime import datetime
 import sys
 import time
 import os
-from dotenv import load_dotenv
 
-load_dotenv() 
 BETTINGPROS_API_URL = os.getenv("BETTINGPROS_API_URL")
+API_LIMIT = int(os.getenv("BETTINGPROS_LIMIT", 2000))
+API_TIMEOUT = int(os.getenv("API_TIMEOUT", 30))
+MAX_RETRIES = int(os.getenv("API_RETRIES", 5))
+RETRY_DELAY_MULT = int(os.getenv("API_RETRY_DELAY_MULTIPLIER", 2))
 
 def fetch_nba_props():
     """Fetch NBA props from BettingPros API"""
     url = BETTINGPROS_API_URL
     
     params = {
-        'limit': 2000,
+        'limit': API_LIMIT,
         'sport': 'NBA',
         'market_id': '',
         'event_id': '',
@@ -30,7 +32,7 @@ def fetch_nba_props():
     
     for attempt in range(1, RETRIES + 1):
         try:
-            response = requests.get(url, params=params, timeout=30)
+            response = requests.get(url, params=params, timeout=API_TIMEOUT)
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
@@ -38,7 +40,7 @@ def fetch_nba_props():
             if attempt == RETRIES:
                 print("All retries failed.", file=sys.stderr)
                 return None
-            time.sleep(attempt * 2) 
+            time.sleep(attempt * RETRY_DELAY_MULT) 
 
 def parse_props(data):
     """

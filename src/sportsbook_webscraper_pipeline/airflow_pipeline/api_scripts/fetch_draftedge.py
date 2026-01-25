@@ -2,13 +2,15 @@ import requests
 import pandas as pd
 from datetime import datetime
 import sys
+import os
 
 DRAFTEDGE_API = "https://draftedge.com/draftedge-data/nbaprops1.json"
+API_TIMEOUT = int(os.getenv("API_TIMEOUT", 30))
 
 def fetch_draftedge_data():
     """Fetch NBA props from DraftEdge API"""
     try:
-        response = requests.get(DRAFTEDGE_API, timeout=30)
+        response = requests.get(DRAFTEDGE_API, timeout=API_TIMEOUT)
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:

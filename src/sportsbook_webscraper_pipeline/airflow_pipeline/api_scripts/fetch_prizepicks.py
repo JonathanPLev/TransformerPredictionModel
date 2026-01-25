@@ -2,8 +2,10 @@ import requests
 import pandas as pd
 from datetime import datetime 
 import sys
+import os
 
 PRIZEPICKS_API = "https://api.prizepicks.com/projections"
+API_TIMEOUT = int(os.getenv("API_TIMEOUT", 30))
 
 NBA_TEAMS = {
     'ATL', 'BOS', 'BKN', 'BRK', 'CHA', 'CHI', 'CLE', 'DAL', 'DEN', 'DET', 'GSW',
@@ -25,7 +27,7 @@ def get_prizepicks_data():
     }
     
     try:
-        response = requests.get(PRIZEPICKS_API, headers=headers, timeout=30)
+        response = requests.get(PRIZEPICKS_API, headers=headers, timeout=API_TIMEOUT)
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
