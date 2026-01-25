@@ -35,9 +35,19 @@ def append_to_postgres(df, table_name):
     metadata = MetaData()
     table = Table(table_name, metadata, autoload_with=db_eng)
 
+    records = df.to_dict(orient='records')
+    expected_count = len(records)
+
     with db_eng.begin() as conn: 
-        for row in df.to_dict(orient='records'):
-            conn.execute(table.insert(), row)
+        result = conn.execute(table.insert(), records)
+        if result.rowcount != -1:
+            if result.rowcount != expected_count:
+                raise Exception(
+                    f"DB Verification Failed: Expected to write {expected_count} rows, "
+                    f"but DB reported {result.rowcount} rows affected."
+                )
+        
+        return expected_count
             
 def check_if_table_exists(table_name):
     query = sql_text(
@@ -64,9 +74,14 @@ def __main__(table_name):
             continue
         if not check_df_columns(df):
             raise Exception(f"df columns do not match WITH {table_name} attributes.")
-        append_to_postgres(df, table_name)
+        
+        rows_inserted = append_to_postgres(df, table_name)
+        
+        if rows_inserted != len(df):
+            raise Exception(f"Verification Mismatch: DataFrame had {len(df)} rows but function reported {rows_inserted}.")
 
-        print(f"Successfully appended dataframe of length {len(df)} to {table_name} in postgres.")
+        print(f"Successfully appended {rows_inserted} records to {table_name} in postgres.")
+
 
 
 if __name__ == "__main__":
