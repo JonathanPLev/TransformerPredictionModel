@@ -213,3 +213,4 @@ __marimo__/
 # data folders
 src/nba_dataset/Data/*.csv
 
+Data/
