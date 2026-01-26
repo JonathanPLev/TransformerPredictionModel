@@ -1,0 +1,45 @@
+-- Migration: Load NBA data from CSV files
+-- This migration loads data from CSV files into the NBA tables
+-- Files are expected to be in /data directory (mounted volume)
+
+-- Check if data already exists and raise error if it does
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM games LIMIT 1) THEN
+        RAISE EXCEPTION 'Table games already contains data. Cannot reload existing data.';
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM injury_data LIMIT 1) THEN
+        RAISE EXCEPTION 'Table injury_data already contains data. Cannot reload existing data.';
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM player_statistics LIMIT 1) THEN
+        RAISE EXCEPTION 'Table player_statistics already contains data. Cannot reload existing data.';
+    END IF;
+END $$;
+
+-- Load games data
+COPY games(game_id, home_team_city, home_team_name, away_team_city, away_team_name)
+FROM '/data/Games.csv'
+WITH (FORMAT csv, HEADER true, DELIMITER ',');
+
+-- Load injury_data
+COPY injury_data(date, relinquished, spacer, notes)
+FROM '/data/InjuryData.csv'
+WITH (FORMAT csv, HEADER true, DELIMITER ',');
+
+-- Load player_statistics
+COPY player_statistics(
+    first_name, last_name, person_id, game_id, game_date,
+    player_team_city, player_team_name, opponent_team_city, opponent_team_name,
+    game_type, game_label, game_sublabel, series_game_number,
+    win, home, num_minutes, points, assists, blocks, steals,
+    field_goals_attempted, field_goals_made, field_goals_percentage,
+    three_pointers_attempted, three_pointers_made, three_pointers_percentage,
+    free_throws_attempted, free_throws_made, free_throws_percentage,
+    rebounds_defensive, rebounds_offensive, rebounds_total,
+    fouls_personal, turnovers, plus_minus_points
+)
+FROM '/data/PlayerStatistics.csv'
+WITH (FORMAT csv, HEADER true, DELIMITER ',');
+
