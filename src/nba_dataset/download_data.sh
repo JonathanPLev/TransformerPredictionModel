@@ -6,6 +6,11 @@ KAGGLE_DATASET="eoinamoore/historical-nba-data-and-player-box-scores"
 GDRIVE_FOLDER_URL="https://drive.google.com/drive/folders/1MzLBNBKa82FIo7qYoS6BKte3DM8-Wbyp?usp=sharing"
 OUT_DIR="Data"
 
+
+# Optional: set DOWNLOAD_INJURY=1 to also refresh InjuryData.csv from Google Drive
+DOWNLOAD_INJURY="${DOWNLOAD_INJURY:-0}"
+
+
 mkdir -p "$OUT_DIR"
 
 echo "==> Downloading Kaggle data..."
@@ -40,29 +45,30 @@ else
 fi
 
 
-# InjuryData.csv (Google Drive – NBA-Warehouse)
+# InjuryData.csv (Google Drive – NBA-Warehouse) 
+if [[ "$DOWNLOAD_INJURY" == "1" ]]; then
+  echo "==> Downloading Injury data from NBA-Warehouse (Google Drive)..."
 
-echo "==> Downloading Injury data from NBA-Warehouse (Google Drive)..."
+  if ! command -v gdown >/dev/null 2>&1; then
+    echo "ERROR: gdown not found."
+    echo "Install with: pipx install gdown"
+    exit 1
+  fi
 
-if ! command -v gdown >/dev/null 2>&1; then
-  echo "ERROR: gdown not found."
-  echo "Install with: pipx install gdown"
-  exit 1
-fi
+  TMP_DIR="$(mktemp -d)"
+  gdown --folder "$GDRIVE_FOLDER_URL" -O "$TMP_DIR"
 
-# Download folder but KEEP Kaggle files intact
-TMP_DIR="$(mktemp -d)"
-gdown --folder "$GDRIVE_FOLDER_URL" -O "$TMP_DIR"
+  if [[ -f "$TMP_DIR/InjuryData.csv" ]]; then
+    mv -f "$TMP_DIR/InjuryData.csv" "$OUT_DIR/InjuryData.csv"
+  else
+    echo "ERROR: InjuryData.csv not found in NBA-Warehouse folder"
+    exit 1
+  fi
 
-# Move only InjuryData.csv
-if [[ -f "$TMP_DIR/InjuryData.csv" ]]; then
-  mv -f "$TMP_DIR/InjuryData.csv" "$OUT_DIR/InjuryData.csv"
+  rm -rf "$TMP_DIR"
 else
-  echo "ERROR: InjuryData.csv not found in NBA-Warehouse folder"
-  exit 1
+  echo "==> Skipping InjuryData.csv download (set DOWNLOAD_INJURY=1 to enable)"
 fi
-
-rm -rf "$TMP_DIR"
 
 echo ""
 echo "✅ Data refresh complete:"

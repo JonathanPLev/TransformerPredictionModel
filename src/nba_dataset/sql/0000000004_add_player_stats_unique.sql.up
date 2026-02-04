@@ -1,0 +1,2 @@
+ALTER TABLE player_statistics
+ADD CONSTRAINT player_statistics_person_game_uniq UNIQUE (person_id, game_id);
