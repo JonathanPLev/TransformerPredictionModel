@@ -1,6 +1,6 @@
 BEGIN;
 
--- Clear cleaned tables (daily refresh strategy)
+-- Clear raw staging tables before reloading CSVs
 TRUNCATE games_raw;
 TRUNCATE player_statistics_raw;
 
