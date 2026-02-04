@@ -8,8 +8,10 @@ All data is downloaded locally and is **not stored in GitHub**.
 ## Folder Structure
 
 - `Data/` – CSV data files (downloaded locally, gitignored)
-- `sql/` – SQL scripts to create tables and load data
-- `download_data.sh` – script that automatically refreshes NBA datasets from Kaggle and Google Drive
+- `sql/` – SQL migrations (create tables / constraints)
+- `ops_sql/` – operational SQL (refresh / upsert logic)
+- `download_data.sh` – downloads Kaggle data (and optionally injury data)
+- `refresh_daily.sh` – end-to-end refresh (download + DB upsert)
 - `docker-compose.yml` – local DB stack that mounts `Data/` into the DB container
 
 ---
@@ -32,12 +34,13 @@ Kaggle is treated as the source of truth for core NBA statistics.
 ### Google Drive (NBA-Warehouse)
 
 Used for:
-- `InjuryData.csv`
+- `InjuryData.csv` (optional/manual refresh)
 
 Public folder:
 https://drive.google.com/drive/folders/1MzLBNBKa82FIo7qYoS6BKte3DM8-Wbyp?usp=sharing
 
-Only `InjuryData.csv` is pulled from Google Drive to avoid overwriting Kaggle data.
+By default, the daily refresh **does not** re-download `InjuryData.csv`.
+To refresh it manually, run `DOWNLOAD_INJURY=1 ./download_data.sh`.
 
 ---
 
@@ -48,11 +51,10 @@ Only `InjuryData.csv` is pulled from Google Drive to avoid overwriting Kaggle da
 The following tools are required:
 
 - Docker and Docker Compose
-- `pipx` (recommended for installing CLI tools)
 - Kaggle CLI
-- `gdown`
+- (Optional) `gdown` (only needed if refreshing injury data)
 
-Install required CLI tools:
+Install tools:
 ```bash
 pipx install kaggle==1.5.16
 pipx install gdown
