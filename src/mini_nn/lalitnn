@@ -1,0 +1,223 @@
+import os
+import math
+import numpy as np
+import pandas as pd
+import torch
+import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+
+
+
+class TabularDataset(Dataset):
+    def __init__(self, X: np.ndarray, y: np.ndarray):
+        self.X = torch.tensor(X, dtype=torch.float32)
+        self.y = torch.tensor(y, dtype=torch.float32).view(-1, 1)  
+
+    def __len__(self):
+        return self.X.shape[0]
+
+    def __getitem__(self, idx):
+        return self.X[idx], self.y[idx]
+
+
+
+class MLPBinaryClassifier(nn.Module):
+    def __init__(self, in_dim: int, hidden=(128, 64), dropout=0.2):
+        super().__init__()
+        layers = []
+        prev = in_dim
+        for h in hidden:
+            layers += [
+                nn.Linear(prev, h),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.BatchNorm1d(h),
+            ]
+            prev = h
+        layers += [nn.Linear(prev, 1)]  
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.net(x)  
+
+
+
+def build_features(df: pd.DataFrame, target_col="Beats_Projected_Line"):
+    if target_col not in df.columns:
+        raise ValueError(f"Missing target column: {target_col}")
+
+    drop_cols = {
+        target_col,
+        "GAME_DATE",      
+        "MATCHUP",        
+        "Player_Name",    
+        "SEASON_ID",      
+        "VIDEO_AVAILABLE",
+    }
+    drop_cols = [c for c in drop_cols if c in df.columns]
+
+    numeric_df = df.select_dtypes(include=["number"]).copy()
+
+    y = numeric_df[target_col].astype(np.float32).to_numpy()
+    X_df = numeric_df.drop(columns=[target_col], errors="ignore")
+
+    nunique = X_df.nunique(dropna=False)
+    X_df = X_df.loc[:, nunique > 1]
+
+    X_df = X_df.replace([np.inf, -np.inf], np.nan)
+    X_df = X_df.fillna(X_df.median(numeric_only=True))
+
+    X = X_df.to_numpy(dtype=np.float32)
+    return X, y, list(X_df.columns)
+
+
+
+@torch.no_grad()
+def eval_metrics(model, loader, device):
+    model.eval()
+    total = 0
+    correct = 0
+    loss_sum = 0.0
+    bce = nn.BCEWithLogitsLoss()
+
+    for X, y in loader:
+        X, y = X.to(device), y.to(device)
+        logits = model(X)
+        loss = bce(logits, y)
+        probs = torch.sigmoid(logits)
+        preds = (probs >= 0.5).float()
+        correct += (preds == y).sum().item()
+        total += y.numel()
+        loss_sum += loss.item() * X.size(0)
+
+    acc = correct / total if total else 0.0
+    avg_loss = loss_sum / len(loader.dataset) if len(loader.dataset) else 0.0
+    return {"val_loss": avg_loss, "val_acc": acc}
+
+
+def train(
+    csv_path: str,
+    target_col="Beats_Projected_Line",
+    batch_size=256,
+    epochs=25,
+    lr=1e-3,
+    weight_decay=1e-4,
+    test_size=0.2,
+    seed=42,
+    model_out="beats_projected_line_mlp.pt",
+):
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"CSV not found: {csv_path}")
+
+    
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+
+    df = pd.read_csv(csv_path)
+
+    X, y, feature_names = build_features(df, target_col=target_col)
+
+    X_train, X_val, y_train, y_val = train_test_split(
+        X, y, test_size=test_size, random_state=seed, stratify=y if len(np.unique(y)) == 2 else None
+    )
+
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(X_train).astype(np.float32)
+    X_val = scaler.transform(X_val).astype(np.float32)
+
+    train_ds = TabularDataset(X_train, y_train)
+    val_ds = TabularDataset(X_val, y_val)
+
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=False)
+    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, drop_last=False)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = MLPBinaryClassifier(in_dim=X_train.shape[1]).to(device)
+
+    pos = float((y_train == 1).sum())
+    neg = float((y_train == 0).sum())
+    pos_weight = torch.tensor([neg / max(pos, 1.0)], device=device)
+    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+
+    optim = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+
+    best_acc = -1.0
+    best_state = None
+
+    for epoch in range(1, epochs + 1):
+        model.train()
+        running = 0.0
+
+        for Xb, yb in train_loader:
+            Xb, yb = Xb.to(device), yb.to(device)
+            optim.zero_grad(set_to_none=True)
+            logits = model(Xb)
+            loss = criterion(logits, yb)
+            loss.backward()
+            nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            optim.step()
+            running += loss.item() * Xb.size(0)
+
+        train_loss = running / len(train_loader.dataset)
+        metrics = eval_metrics(model, val_loader, device)
+
+        print(
+            f"Epoch {epoch:02d}/{epochs} | "
+            f"train_loss={train_loss:.4f} | "
+            f"val_loss={metrics['val_loss']:.4f} | "
+            f"val_acc={metrics['val_acc']:.4f}"
+        )
+
+        if metrics["val_acc"] > best_acc:
+            best_acc = metrics["val_acc"]
+            best_state = {
+                "model_state": model.state_dict(),
+                "scaler_mean": scaler.mean_,
+                "scaler_scale": scaler.scale_,
+                "feature_names": feature_names,
+                "target_col": target_col,
+            }
+
+    if best_state is None:
+        raise RuntimeError("Training failed to produce a best_state.")
+
+    torch.save(best_state, model_out)
+    print(f"\nSaved best model checkpoint to: {model_out}")
+    return model_out
+
+
+
+def load_model(checkpoint_path: str):
+    ckpt = torch.load(checkpoint_path, map_location="cpu")
+    feature_names = ckpt["feature_names"]
+    model = MLPBinaryClassifier(in_dim=len(feature_names))
+    model.load_state_dict(ckpt["model_state"])
+    model.eval()
+
+    scaler_mean = ckpt["scaler_mean"]
+    scaler_scale = ckpt["scaler_scale"]
+
+    return model, feature_names, scaler_mean, scaler_scale
+
+
+@torch.no_grad()
+def predict_proba(model, feature_names, scaler_mean, scaler_scale, one_row: dict):
+    x = np.array([one_row[f] for f in feature_names], dtype=np.float32)
+    x = (x - scaler_mean) / scaler_scale
+    xt = torch.tensor(x, dtype=torch.float32).view(1, -1)
+    logits = model(xt)
+    prob = torch.sigmoid(logits).item()
+    return prob
+
+
+if __name__ == "__main__":
+   
+    train(
+        csv_path="NBA_Multi_Player_Training_Data.csv",
+        target_col="Beats_Projected_Line",
+        epochs=30,
+        batch_size=256,
+        model_out="beats_projected_line_mlp.pt",
+    )
