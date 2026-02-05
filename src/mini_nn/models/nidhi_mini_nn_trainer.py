@@ -10,7 +10,6 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 import os
 import matplotlib.pyplot as plt
-import seaborn as sns
 
 #define model
 
@@ -73,10 +72,10 @@ class MiniNNTrainer:
         y = df[self.target].values
         self.feature_columns = X.columns.tolist()
         
-        print(f"\nData Summary:")
+        print("\nData Summary:")
         print(f"Features: {len(self.feature_columns)}")
         print(f"Samples: {len(X)}")
-        print(f"Target distribution:")
+        print("Target distribution:")
         unique, counts = np.unique(y, return_counts=True)
         for cls, count in zip(unique, counts):
             label = "Over" if cls == 1 else "Under"
