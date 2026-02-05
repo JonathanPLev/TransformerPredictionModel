@@ -111,9 +111,9 @@ class DataProcessor:
                 "constants/NBA-dataset-stats-player-team/team/team_stats_advanced_rs.csv",
                 "../constants/NBA-dataset-stats-player-team/team/team_stats_advanced_rs.csv",
                 "constants/NBA-dataset-stats-player-team/team/team_stats_misc_rs.csv",
-                "../constants/NBA-dataset-stats-player-team/team/team_stats_misc_rs.csv"
+                "../constants/NBA-dataset-stats-player-team/team/team_stats_misc_rs.csv", 
             ]
-            
+
             team_df = None
             for path in possible_paths:
                 if os.path.exists(path):
