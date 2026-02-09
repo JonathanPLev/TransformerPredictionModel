@@ -1,0 +1,9 @@
+-- Migration: Remove NBA data from tables
+-- This migration truncates all data from the NBA tables
+-- WARNING: This will delete all data in these tables
+
+-- Truncate tables in reverse order to respect foreign key constraints
+TRUNCATE TABLE player_statistics CASCADE;
+TRUNCATE TABLE injury_data CASCADE;
+TRUNCATE TABLE games CASCADE;
+
