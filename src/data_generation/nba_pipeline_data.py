@@ -347,7 +347,6 @@ class MultiPlayerPipeline:
             except Exception as e:
                 print(f"Skipping {player_name}: {str(e)}")
                 continue
-
         if all_player_data:
             self.all_training_data = pd.concat(all_player_data, ignore_index=True)
             print(f"Dataset created with {len(self.all_training_data)} total games.")
