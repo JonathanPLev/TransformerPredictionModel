@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NBA Player Performance Predictor</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="bubble-container">
+        <div class="bubble">
+            <h1>🏀 NBA Predictor</h1>
+            <p class="subtitle">Predict player performance for their next game</p>
+            
+            <div class="input-section">
+                <input 
+                    type="text" 
+                    id="playerNameInput" 
+                    placeholder="Enter player name..."
+                    maxlength="64"
+                    autocomplete="off"
+                />
+                <button id="submitButton" onclick="handleSubmit()">
+                    Submit
+                </button>
+            </div>
+
+            <div id="loadingSection" class="loading-section hidden">
+                <div class="basketball-loader">
+                    <div class="basketball">🏀</div>
+                </div>
+                <p id="loadingMessage" class="loading-message">Dribbling the data...</p>
+            </div>
+
+            <div id="resultSection" class="result-section hidden">
+                <div class="result-header">
+                    <h2>🎯 Prediction</h2>
+                </div>
+                <div id="resultContent" class="result-content"></div>
+                <button class="retry-button" onclick="resetForm()">Predict Another Player</button>
+            </div>
+
+            <div id="errorSection" class="error-section hidden">
+                <div class="error-icon">⚠️</div>
+                <p id="errorMessage" class="error-message"></p>
+                <button class="retry-button" onclick="resetForm()">Try Another Player</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
