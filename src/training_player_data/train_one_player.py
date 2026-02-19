@@ -6,7 +6,11 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from sklearn.preprocessing import StandardScaler
+
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+import joblib
+
 from torch.utils.data import TensorDataset, DataLoader
 
 # ---------------- config ----------------
@@ -42,11 +46,47 @@ def load_player_stats_csv() -> pd.DataFrame:
         raise FileNotFoundError(f"Could not find: {data_path}")
     return pd.read_csv(data_path, low_memory=False)
 
+def load_games_csv() -> pd.DataFrame:
+    current_dir = Path(__file__).resolve().parent
+    games_path = current_dir.parent / "nba_dataset" / "Data" / "Games.csv"
+    if not games_path.exists():
+        raise FileNotFoundError(f"Could not find: {games_path}")
+    return pd.read_csv(games_path, low_memory=False)
+
 def pick_date_col(df: pd.DataFrame) -> str:
     for c in ["gameDate", "gameDateTimeEst", "gameDateTimeUTC", "gameDateTime", "gameDateTimeLocal"]:
         if c in df.columns:
             return c
     raise ValueError(f"No known date column found. Columns include: {list(df.columns)[:60]} ...")
+
+def add_opponent_from_games(df_stats: pd.DataFrame, df_games: pd.DataFrame) -> pd.DataFrame:
+    """
+    Requires:
+      - PlayerStatistics.csv: gameId, home
+      - Games.csv: gameId, hometeamId, awayteamId
+    Produces:
+      - opp_id (string) categorical for one-hot
+    """
+    needed_games = ["gameId", "hometeamId", "awayteamId"]
+    for c in needed_games:
+        if c not in df_games.columns:
+            raise ValueError(f"Games.csv missing required column: {c}")
+
+    if "gameId" not in df_stats.columns:
+        raise ValueError("PlayerStatistics.csv missing required column: gameId")
+    if "home" not in df_stats.columns:
+        raise ValueError("PlayerStatistics.csv missing required column: home (0/1)")
+
+    g = df_games[needed_games].copy()
+    out = df_stats.merge(g, on="gameId", how="left")
+
+    out["home"] = pd.to_numeric(out["home"], errors="coerce").fillna(0).astype(int)
+
+    # Opponent ID: if player is on home team -> opponent is awayteamId; else -> hometeamId
+    out["opp_id"] = np.where(out["home"] == 1, out["awayteamId"], out["hometeamId"])
+    out["opp_id"] = out["opp_id"].fillna(-1).astype(int).astype(str)
+
+    return out
 
 def build_all_players_dataset(df: pd.DataFrame, window: int):
     if "personId" not in df.columns or "points" not in df.columns:
@@ -68,7 +108,10 @@ def build_all_players_dataset(df: pd.DataFrame, window: int):
         "plusMinusPoints",
     ]
 
-    keep = ["personId", date_col] + [c for c in base_feats if c in df.columns]
+    if "opp_id" not in df.columns:
+        raise ValueError("Missing 'opp_id'. Did you merge Games.csv using add_opponent_from_games()?")
+
+    keep = ["personId", "gameId", "home", "opp_id", date_col] + [c for c in base_feats if c in df.columns]
     df = df[keep].copy()
 
     df[date_col] = pd.to_datetime(df[date_col], utc=True, errors="coerce")
@@ -79,63 +122,95 @@ def build_all_players_dataset(df: pd.DataFrame, window: int):
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
     all_rows = []
-    feat_cols = None
+    numeric_cols = None
+    cat_cols = ["opp_id"]
 
-    for pid, g in df.groupby("personId"):
+    lag_base = ["reboundsTotal", "assists", "numMinutes"]
+
+    for pid, g in df.groupby("personId", sort=False):
         g = g.sort_values(date_col).reset_index(drop=True)
 
+        # target: next game points
         g["y_next_points"] = g["points"].shift(-1)
 
-        for c in base_feats:
-            if c in g.columns:
-                g[f"{c}_roll{window}"] = g[c].rolling(window).mean()
+        # days of rest
+        g["days_rest"] = g[date_col].diff().dt.days.fillna(0).clip(lower=0)
 
-        this_feat_cols = [f"{c}_roll{window}" for c in base_feats if f"{c}_roll{window}" in g.columns]
-        if not this_feat_cols:
+        # ---- BATCH rolling means (fast; avoids pandas fragmentation) ----
+        feats_present = [c for c in base_feats if c in g.columns]
+        roll_df = g[feats_present].rolling(window).mean()
+        roll_df.columns = [f"{c}_roll{window}" for c in feats_present]
+        g = pd.concat([g, roll_df], axis=1)
+
+        # ---- BATCH lag-1 features ----
+        lag_present = [c for c in lag_base if c in g.columns]
+        lag_df = g[lag_present].shift(1)
+        lag_df.columns = [f"{c}_lag1" for c in lag_present]
+        g = pd.concat([g, lag_df], axis=1)
+
+        roll_cols = [f"{c}_roll{window}" for c in feats_present]
+        lag_cols = [f"{c}_lag1" for c in lag_present]
+        this_numeric = roll_cols + lag_cols + ["days_rest"]
+
+        if not roll_cols:
             continue
-        if feat_cols is None:
-            feat_cols = this_feat_cols
 
-        out = g.dropna(subset=this_feat_cols + ["y_next_points"]).copy()
+        if numeric_cols is None:
+            numeric_cols = this_numeric
+
+        out = g.dropna(subset=this_numeric + ["y_next_points"]).copy()
         if out.empty:
             continue
 
         out["y_log"] = np.log1p(out["y_next_points"].astype(float))
-        all_rows.append(out[["personId", date_col] + this_feat_cols + ["y_log"]])
+        all_rows.append(out[["personId", date_col, "opp_id"] + this_numeric + ["y_log"]])
 
-    if not all_rows or feat_cols is None:
+    if not all_rows or numeric_cols is None:
         raise ValueError("No training rows created. Try a smaller window (ex: 3).")
 
-    big = pd.concat(all_rows, ignore_index=True)
-    big = big.sort_values(date_col).reset_index(drop=True)
-    return big, feat_cols, date_col
+    big = pd.concat(all_rows, ignore_index=True).sort_values(date_col).reset_index(drop=True)
+    return big, numeric_cols, cat_cols, date_col
 
-def time_split(X, y, train_frac=0.80, val_frac=0.10):
-    n = len(X)
+def time_split_df(X_df: pd.DataFrame, y: np.ndarray, train_frac=0.80, val_frac=0.10):
+    n = len(X_df)
     n_train = int(n * train_frac)
     n_val = int(n * val_frac)
-    X_train, y_train = X[:n_train], y[:n_train]
-    X_val, y_val = X[n_train:n_train + n_val], y[n_train:n_train + n_val]
-    X_test, y_test = X[n_train + n_val:], y[n_train + n_val:]
+
+    X_train = X_df.iloc[:n_train].reset_index(drop=True)
+    y_train = y[:n_train]
+
+    X_val = X_df.iloc[n_train:n_train + n_val].reset_index(drop=True)
+    y_val = y[n_train:n_train + n_val]
+
+    X_test = X_df.iloc[n_train + n_val:].reset_index(drop=True)
+    y_test = y[n_train + n_val:]
+
     return X_train, y_train, X_val, y_val, X_test, y_test
 
 # ---------------- training (MINI-BATCH) ----------------
-def train_regression_model(X_train, y_train, X_val, y_val):
-    scaler = StandardScaler()
-    X_train_s = scaler.fit_transform(X_train)
-    X_val_s = scaler.transform(X_val)
+def train_regression_model(X_train_df, y_train, X_val_df, y_val, numeric_cols, cat_cols):
+    preproc = ColumnTransformer(
+        transformers=[
+            ("num", StandardScaler(), numeric_cols),
+            ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), cat_cols),
+        ],
+        remainder="drop",
+    )
 
-    model = MiniNet(input_size=X_train_s.shape[1])
+    X_train = preproc.fit_transform(X_train_df)
+    X_val = preproc.transform(X_val_df)
+
+    model = MiniNet(input_size=X_train.shape[1])
     optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-3)
     criterion = nn.MSELoss()
 
     train_ds = TensorDataset(
-        torch.tensor(X_train_s, dtype=torch.float32),
+        torch.tensor(X_train, dtype=torch.float32),
         torch.tensor(y_train, dtype=torch.float32).unsqueeze(1),
     )
     train_loader = DataLoader(train_ds, batch_size=4096, shuffle=True)
 
-    X_val_t = torch.tensor(X_val_s, dtype=torch.float32)
+    X_val_t = torch.tensor(X_val, dtype=torch.float32)
     y_val_t = torch.tensor(y_val, dtype=torch.float32).unsqueeze(1)
 
     best_val = float("inf")
@@ -180,31 +255,52 @@ def train_regression_model(X_train, y_train, X_val, y_val):
         raise RuntimeError("Training ended before any best model was saved. Try running again (or lower the batch size).")
 
     model.load_state_dict(best_state)
-    return model, scaler
+    return model, preproc
 
-def predict_next_for_player(df_raw: pd.DataFrame, person_id: int, feat_cols: list, date_col: str, window: int,
-                            model, scaler) -> float:
-    base = [c.replace(f"_roll{window}", "") for c in feat_cols]
+def build_last_row_for_player(df_all: pd.DataFrame, person_id: int, date_col: str, window: int,
+                              numeric_cols: list, cat_cols: list) -> pd.DataFrame:
+    base_feats = [
+        "points","numMinutes","assists","reboundsTotal","turnovers",
+        "fieldGoalsAttempted","threePointersAttempted","freeThrowsAttempted",
+        "steals","blocks","plusMinusPoints"
+    ]
+    lag_base = ["reboundsTotal", "assists", "numMinutes"]
 
-    one = df_raw[df_raw["personId"] == person_id].copy()
+    one = df_all[df_all["personId"] == person_id].copy()
     if one.empty:
         raise ValueError(f"No rows found for personId={person_id}")
 
     one[date_col] = pd.to_datetime(one[date_col], utc=True, errors="coerce")
     one = one.dropna(subset=[date_col]).sort_values(date_col).reset_index(drop=True)
 
-    for c in base:
+    for c in base_feats:
         if c in one.columns:
             one[c] = pd.to_numeric(one[c], errors="coerce")
-            one[f"{c}_roll{window}"] = one[c].rolling(window).mean()
 
-    last = one.dropna(subset=feat_cols).tail(1)
+    one["days_rest"] = one[date_col].diff().dt.days.fillna(0).clip(lower=0)
+
+    # ---- BATCH rolling + lag (fast) ----
+    feats_present = [c for c in base_feats if c in one.columns]
+    roll_df = one[feats_present].rolling(window).mean()
+    roll_df.columns = [f"{c}_roll{window}" for c in feats_present]
+    one = pd.concat([one, roll_df], axis=1)
+
+    lag_present = [c for c in lag_base if c in one.columns]
+    lag_df = one[lag_present].shift(1)
+    lag_df.columns = [f"{c}_lag1" for c in lag_present]
+    one = pd.concat([one, lag_df], axis=1)
+
+    last = one.dropna(subset=numeric_cols + cat_cols).tail(1)
     if last.empty:
         raise ValueError(f"Not enough games for personId={person_id} with window={window}. Try --window 3.")
 
-    x = last[feat_cols].to_numpy(dtype=np.float32)
-    x_s = scaler.transform(x)
-    xt = torch.tensor(x_s, dtype=torch.float32)
+    return last[numeric_cols + cat_cols]
+
+def predict_next_for_player(df_all: pd.DataFrame, person_id: int, date_col: str, window: int,
+                            numeric_cols: list, cat_cols: list, model, preproc) -> float:
+    last_row = build_last_row_for_player(df_all, person_id, date_col, window, numeric_cols, cat_cols)
+    x = preproc.transform(last_row)
+    xt = torch.tensor(x, dtype=torch.float32)
 
     model.eval()
     with torch.no_grad():
@@ -222,23 +318,27 @@ def main():
     parser.add_argument("--window", type=int, default=5)
     args = parser.parse_args()
 
-    df = load_player_stats_csv()
+    df_stats = load_player_stats_csv()
+    df_games = load_games_csv()
+
+    # add opponent id feature from Games.csv
+    df = add_opponent_from_games(df_stats, df_games)
     date_col = pick_date_col(df)
 
-    big, feat_cols, date_col = build_all_players_dataset(df, window=args.window)
+    big, numeric_cols, cat_cols, date_col = build_all_players_dataset(df, window=args.window)
 
-    X = big[feat_cols].to_numpy(dtype=np.float32)
+    X_df = big[numeric_cols + cat_cols]
     y = big["y_log"].to_numpy(dtype=np.float32)
 
-    X_train, y_train, X_val, y_val, X_test, y_test = time_split(X, y)
+    X_train, y_train, X_val, y_val, X_test, y_test = time_split_df(X_df, y)
 
-    print(f"Training rows: {len(X)} | Features: {len(feat_cols)} | Window: {args.window}")
-    model, scaler = train_regression_model(X_train, y_train, X_val, y_val)
+    print(f"Training rows: {len(X_df)} | Numeric: {len(numeric_cols)} | Cat: {len(cat_cols)} | Window: {args.window}")
+    model, preproc = train_regression_model(X_train, y_train, X_val, y_val, numeric_cols, cat_cols)
 
-    # Test MAE in real points (convert back)
-    X_test_s = scaler.transform(X_test)
+    # Test MAE in real points
+    X_test_t = preproc.transform(X_test)
     with torch.no_grad():
-        pred_log = model(torch.tensor(X_test_s, dtype=torch.float32)).squeeze(1).numpy()
+        pred_log = model(torch.tensor(X_test_t, dtype=torch.float32)).squeeze(1).numpy()
     pred_pts = np.expm1(pred_log)
     true_pts = np.expm1(y_test)
     test_mae_pts = float(np.mean(np.abs(pred_pts - true_pts)))
@@ -250,8 +350,13 @@ def main():
         avg_last = float(one_points.tail(args.window).mean())
         print(f"Last {args.window}-game avg (points): {avg_last:.1f}")
 
-    next_pts = predict_next_for_player(df, args.person_id, feat_cols, date_col, args.window, model, scaler)
+    next_pts = predict_next_for_player(df, args.person_id, date_col, args.window, numeric_cols, cat_cols, model, preproc)
     print(f"\nPredicted NEXT game points for personId={args.person_id}: {next_pts:.1f}")
+
+    # save checkpoint
+    torch.save(model.state_dict(), "model_state.pt")
+    joblib.dump(preproc, "preproc.joblib")
+    print("\nSaved checkpoint: model_state.pt + preproc.joblib")
 
 if __name__ == "__main__":
     main()
