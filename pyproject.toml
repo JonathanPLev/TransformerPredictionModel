@@ -9,6 +9,8 @@ dependencies = [
     "scikit-learn>=1.7.2",
     "gdown",
     "torch>=2.9.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
 ]
 
 
