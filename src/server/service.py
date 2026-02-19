@@ -1,7 +1,6 @@
 import numpy as np
 import pandas as pd
 import torch
-from datetime import datetime, timezone
 
 def _pick_date_col(df: pd.DataFrame) -> str:
     for c in ["gameDate", "gameDateTimeEst", "gameDateTimeUTC", "gameDateTime", "gameDateTimeLocal"]:
