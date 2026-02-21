@@ -1,4 +1,3 @@
-import nba_api.stats.endpoints as endpoints
 from nba_api.stats.static import players
 import pandas as pd
 import sqlalchemy as sqla
