@@ -19,6 +19,9 @@ PATIENCE = 10
 LEARNING_RATE = 1e-4
 SEED = 42
 
+LAG_K_DEFAULT = 5  # lag features from last 5 games
+
+
 # ---------------- model ----------------
 class MiniNet(nn.Module):
     def __init__(self, input_size: int):
@@ -38,6 +41,7 @@ class MiniNet(nn.Module):
     def forward(self, x):
         return self.net(x)
 
+
 # ---------------- data loading ----------------
 def load_player_stats_csv() -> pd.DataFrame:
     current_dir = Path(__file__).resolve().parent  # .../src/training_player_data
@@ -46,6 +50,7 @@ def load_player_stats_csv() -> pd.DataFrame:
         raise FileNotFoundError(f"Could not find: {data_path}")
     return pd.read_csv(data_path, low_memory=False)
 
+
 def load_games_csv() -> pd.DataFrame:
     current_dir = Path(__file__).resolve().parent
     games_path = current_dir.parent / "nba_dataset" / "Data" / "Games.csv"
@@ -53,11 +58,13 @@ def load_games_csv() -> pd.DataFrame:
         raise FileNotFoundError(f"Could not find: {games_path}")
     return pd.read_csv(games_path, low_memory=False)
 
+
 def pick_date_col(df: pd.DataFrame) -> str:
     for c in ["gameDate", "gameDateTimeEst", "gameDateTimeUTC", "gameDateTime", "gameDateTimeLocal"]:
         if c in df.columns:
             return c
     raise ValueError(f"No known date column found. Columns include: {list(df.columns)[:60]} ...")
+
 
 def add_opponent_from_games(df_stats: pd.DataFrame, df_games: pd.DataFrame) -> pd.DataFrame:
     """
@@ -88,7 +95,8 @@ def add_opponent_from_games(df_stats: pd.DataFrame, df_games: pd.DataFrame) -> p
 
     return out
 
-def build_all_players_dataset(df: pd.DataFrame, window: int):
+
+def build_all_players_dataset(df: pd.DataFrame, window: int, lag_k: int):
     if "personId" not in df.columns or "points" not in df.columns:
         raise ValueError("CSV must contain at least 'personId' and 'points'.")
 
@@ -125,6 +133,7 @@ def build_all_players_dataset(df: pd.DataFrame, window: int):
     numeric_cols = None
     cat_cols = ["opp_id"]
 
+    # lag features for last 5 games; include minutes played
     lag_base = ["reboundsTotal", "assists", "numMinutes"]
 
     for pid, g in df.groupby("personId", sort=False):
@@ -133,7 +142,7 @@ def build_all_players_dataset(df: pd.DataFrame, window: int):
         # target: next game points
         g["y_next_points"] = g["points"].shift(-1)
 
-        # days of rest
+        # days of rest (keep this)
         g["days_rest"] = g[date_col].diff().dt.days.fillna(0).clip(lower=0)
 
         # ---- BATCH rolling means (fast; avoids pandas fragmentation) ----
@@ -142,14 +151,18 @@ def build_all_players_dataset(df: pd.DataFrame, window: int):
         roll_df.columns = [f"{c}_roll{window}" for c in feats_present]
         g = pd.concat([g, roll_df], axis=1)
 
-        # ---- BATCH lag-1 features ----
+        # ---- BATCH lag-1..lag-k features ----
         lag_present = [c for c in lag_base if c in g.columns]
-        lag_df = g[lag_present].shift(1)
-        lag_df.columns = [f"{c}_lag1" for c in lag_present]
-        g = pd.concat([g, lag_df], axis=1)
+        lag_dfs = []
+        for k in range(1, lag_k + 1):
+            tmp = g[lag_present].shift(k)
+            tmp.columns = [f"{c}_lag{k}" for c in lag_present]
+            lag_dfs.append(tmp)
+        if lag_dfs:
+            g = pd.concat([g] + lag_dfs, axis=1)
 
         roll_cols = [f"{c}_roll{window}" for c in feats_present]
-        lag_cols = [f"{c}_lag1" for c in lag_present]
+        lag_cols = [f"{c}_lag{k}" for c in lag_present for k in range(1, lag_k + 1)]
         this_numeric = roll_cols + lag_cols + ["days_rest"]
 
         if not roll_cols:
@@ -171,6 +184,7 @@ def build_all_players_dataset(df: pd.DataFrame, window: int):
     big = pd.concat(all_rows, ignore_index=True).sort_values(date_col).reset_index(drop=True)
     return big, numeric_cols, cat_cols, date_col
 
+
 def time_split_df(X_df: pd.DataFrame, y: np.ndarray, train_frac=0.80, val_frac=0.10):
     n = len(X_df)
     n_train = int(n * train_frac)
@@ -179,13 +193,14 @@ def time_split_df(X_df: pd.DataFrame, y: np.ndarray, train_frac=0.80, val_frac=0
     X_train = X_df.iloc[:n_train].reset_index(drop=True)
     y_train = y[:n_train]
 
-    X_val = X_df.iloc[n_train:n_train + n_val].reset_index(drop=True)
-    y_val = y[n_train:n_train + n_val]
+    X_val = X_df.iloc[n_train : n_train + n_val].reset_index(drop=True)
+    y_val = y[n_train : n_train + n_val]
 
-    X_test = X_df.iloc[n_train + n_val:].reset_index(drop=True)
-    y_test = y[n_train + n_val:]
+    X_test = X_df.iloc[n_train + n_val :].reset_index(drop=True)
+    y_test = y[n_train + n_val :]
 
     return X_train, y_train, X_val, y_val, X_test, y_test
+
 
 # ---------------- training (MINI-BATCH) ----------------
 def train_regression_model(X_train_df, y_train, X_val_df, y_val, numeric_cols, cat_cols):
@@ -257,12 +272,28 @@ def train_regression_model(X_train_df, y_train, X_val_df, y_val, numeric_cols, c
     model.load_state_dict(best_state)
     return model, preproc
 
-def build_last_row_for_player(df_all: pd.DataFrame, person_id: int, date_col: str, window: int,
-                              numeric_cols: list, cat_cols: list) -> pd.DataFrame:
+
+def build_last_row_for_player(
+    df_all: pd.DataFrame,
+    person_id: int,
+    date_col: str,
+    window: int,
+    lag_k: int,
+    numeric_cols: list,
+    cat_cols: list,
+) -> pd.DataFrame:
     base_feats = [
-        "points","numMinutes","assists","reboundsTotal","turnovers",
-        "fieldGoalsAttempted","threePointersAttempted","freeThrowsAttempted",
-        "steals","blocks","plusMinusPoints"
+        "points",
+        "numMinutes",
+        "assists",
+        "reboundsTotal",
+        "turnovers",
+        "fieldGoalsAttempted",
+        "threePointersAttempted",
+        "freeThrowsAttempted",
+        "steals",
+        "blocks",
+        "plusMinusPoints",
     ]
     lag_base = ["reboundsTotal", "assists", "numMinutes"]
 
@@ -279,16 +310,21 @@ def build_last_row_for_player(df_all: pd.DataFrame, person_id: int, date_col: st
 
     one["days_rest"] = one[date_col].diff().dt.days.fillna(0).clip(lower=0)
 
-    # ---- BATCH rolling + lag (fast) ----
+    # ---- BATCH rolling means ----
     feats_present = [c for c in base_feats if c in one.columns]
     roll_df = one[feats_present].rolling(window).mean()
     roll_df.columns = [f"{c}_roll{window}" for c in feats_present]
     one = pd.concat([one, roll_df], axis=1)
 
+    # ---- BATCH lag-1..lag-k features ----
     lag_present = [c for c in lag_base if c in one.columns]
-    lag_df = one[lag_present].shift(1)
-    lag_df.columns = [f"{c}_lag1" for c in lag_present]
-    one = pd.concat([one, lag_df], axis=1)
+    lag_dfs = []
+    for k in range(1, lag_k + 1):
+        tmp = one[lag_present].shift(k)
+        tmp.columns = [f"{c}_lag{k}" for c in lag_present]
+        lag_dfs.append(tmp)
+    if lag_dfs:
+        one = pd.concat([one] + lag_dfs, axis=1)
 
     last = one.dropna(subset=numeric_cols + cat_cols).tail(1)
     if last.empty:
@@ -296,9 +332,19 @@ def build_last_row_for_player(df_all: pd.DataFrame, person_id: int, date_col: st
 
     return last[numeric_cols + cat_cols]
 
-def predict_next_for_player(df_all: pd.DataFrame, person_id: int, date_col: str, window: int,
-                            numeric_cols: list, cat_cols: list, model, preproc) -> float:
-    last_row = build_last_row_for_player(df_all, person_id, date_col, window, numeric_cols, cat_cols)
+
+def predict_next_for_player(
+    df_all: pd.DataFrame,
+    person_id: int,
+    date_col: str,
+    window: int,
+    lag_k: int,
+    numeric_cols: list,
+    cat_cols: list,
+    model,
+    preproc,
+) -> float:
+    last_row = build_last_row_for_player(df_all, person_id, date_col, window, lag_k, numeric_cols, cat_cols)
     x = preproc.transform(last_row)
     xt = torch.tensor(x, dtype=torch.float32)
 
@@ -309,6 +355,7 @@ def predict_next_for_player(df_all: pd.DataFrame, person_id: int, date_col: str,
     pts = float(np.expm1(pred_log))
     return max(0.0, pts)
 
+
 def main():
     torch.manual_seed(SEED)
     np.random.seed(SEED)
@@ -316,6 +363,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--person_id", type=int, required=True)
     parser.add_argument("--window", type=int, default=5)
+    parser.add_argument("--lag_k", type=int, default=LAG_K_DEFAULT)
     args = parser.parse_args()
 
     df_stats = load_player_stats_csv()
@@ -325,14 +373,18 @@ def main():
     df = add_opponent_from_games(df_stats, df_games)
     date_col = pick_date_col(df)
 
-    big, numeric_cols, cat_cols, date_col = build_all_players_dataset(df, window=args.window)
+    big, numeric_cols, cat_cols, date_col = build_all_players_dataset(df, window=args.window, lag_k=args.lag_k)
 
+    
     X_df = big[numeric_cols + cat_cols]
     y = big["y_log"].to_numpy(dtype=np.float32)
 
     X_train, y_train, X_val, y_val, X_test, y_test = time_split_df(X_df, y)
 
-    print(f"Training rows: {len(X_df)} | Numeric: {len(numeric_cols)} | Cat: {len(cat_cols)} | Window: {args.window}")
+    print(
+        f"Training rows: {len(X_df)} | Numeric: {len(numeric_cols)} | Cat: {len(cat_cols)} "
+        f"| Window: {args.window} | LagK: {args.lag_k}"
+    )
     model, preproc = train_regression_model(X_train, y_train, X_val, y_val, numeric_cols, cat_cols)
 
     # Test MAE in real points
@@ -350,13 +402,16 @@ def main():
         avg_last = float(one_points.tail(args.window).mean())
         print(f"Last {args.window}-game avg (points): {avg_last:.1f}")
 
-    next_pts = predict_next_for_player(df, args.person_id, date_col, args.window, numeric_cols, cat_cols, model, preproc)
+    next_pts = predict_next_for_player(
+        df, args.person_id, date_col, args.window, args.lag_k, numeric_cols, cat_cols, model, preproc
+    )
     print(f"\nPredicted NEXT game points for personId={args.person_id}: {next_pts:.1f}")
 
     # save checkpoint
     torch.save(model.state_dict(), "model_state.pt")
     joblib.dump(preproc, "preproc.joblib")
     print("\nSaved checkpoint: model_state.pt + preproc.joblib")
+
 
 if __name__ == "__main__":
     main()
