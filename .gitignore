@@ -214,3 +214,7 @@ __marimo__/
 src/nba_dataset/Data/*.csv
 
 Data/
+model_state.pt
+preproc.joblib
+*.pt
+*.joblib
