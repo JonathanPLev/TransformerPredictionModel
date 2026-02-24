@@ -1,111 +1,151 @@
-(function (global) {
-  'use strict';
+(function () {
+    "use strict";
 
-  var MAX_LENGTH = 64;
-  var ALLOWED_PATTERN = /^[a-zA-Z\s\-']+$/;
+    const API_BASE = (window.__PREDICT_API_BASE__ || "").replace(/\/+$/, "");
+    const PREDICT_ENDPOINT = API_BASE + "/predict";
+    const REQUEST_TIMEOUT_MS = 30_000;
 
-  function isControlChar(c) {
-    var code = c.charCodeAt(0);
-    return (code >= 0 && code <= 31) || code === 127;
-  }
+    const MAX_NAME_LENGTH = 64;
+    const ALLOWED_CHARS = /^[a-zA-Z\s\-']+$/;
+    const CONTROL_CHARS = /[\x00-\x1F\x7F-\x9F]/g;
+    const FANCY_APOSTROPHES = /[\u2018\u2019\u201A\u201B\u0060\u00B4]/g;
 
-  function cleanPlayerName(input) {
-    if (input === null || input === undefined) {
-      throw new Error('Player name is required');
-    }
-    if (typeof input !== 'string') {
-      throw new Error('Player name must be a string');
-    }
-    for (var i = 0; i < input.length; i++) {
-      if (isControlChar(input[i])) {
-        throw new Error('Player name contains invalid control characters');
-      }
-    }
-    var cleaned = input.trim().replace(/\s+/g, ' ');
-    if (cleaned.length === 0) {
-      throw new Error('Player name is empty after cleaning');
-    }
-    if (cleaned.length > MAX_LENGTH) {
-      throw new Error('Player name must be at most ' + MAX_LENGTH + ' characters');
-    }
-    if (!ALLOWED_PATTERN.test(cleaned)) {
-      throw new Error('Player name may only contain letters, spaces, hyphen, and apostrophe');
-    }
-    return cleaned;
-  }
+    function sanitizePlayerName(raw) {
+        if (typeof raw !== "string") return null;
 
-  function getPredictUrl() {
-    var base = (global.PREDICT_API_BASE_URL || '').replace(/\/$/, '') || (global.location ? global.location.origin : 'http://localhost:8000');
-    var path = (global.PREDICT_API_ENDPOINT || '/api/predict').replace(/^\/?/, '/');
-    return base + path;
-  }
+        let s = raw.trim();
+        if (s.length === 0) return null;
 
-  function emptyResult(statusCode, errorMessage) {
-    return {
-      statusCode: statusCode,
-      playerResult: null,
-      officialPlayerName: null,
-      teamAgainst: null,
-      timeAndDateEST: null,
-      errorMessage: errorMessage
-    };
-  }
+        s = s.replace(CONTROL_CHARS, "");
+        s = s.replace(/\s+/g, " ").trim();
+        s = s.replace(FANCY_APOSTROPHES, "'");
 
-  function submitPlayerNameAndGetPrediction(rawInput) {
-    var cleaned;
-    try {
-      cleaned = cleanPlayerName(rawInput);
-    } catch (err) {
-      var msg = err && err.message ? err.message : 'Invalid player name';
-      return Promise.resolve(Object.assign(emptyResult(400, msg), { errorMessage: msg }));
+        if (s.length > MAX_NAME_LENGTH) {
+            s = s.substring(0, MAX_NAME_LENGTH).trim();
+        }
+
+        if (!ALLOWED_CHARS.test(s)) return null;
+        if (!/[a-zA-Z]/.test(s)) return null;
+
+        return s;
     }
 
-    var url = getPredictUrl();
-    return fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ playerName: cleaned })
-    }).then(function (response) {
-      var status = response.status;
-      if (status === 404) {
-        return response.json().then(function (body) {
-          return emptyResult(404, (body && body.errorMessage) ? body.errorMessage : 'Player not found');
-        }).catch(function () {
-          return emptyResult(404, 'Player not found');
-        });
-      }
-      if (status === 422) {
-        return response.json().then(function (body) {
-          return emptyResult(422, (body && body.errorMessage) ? body.errorMessage : 'Validation or injury');
-        }).catch(function () {
-          return emptyResult(422, 'Validation or injury');
-        });
-      }
-      if (status === 200) {
-        return response.json().then(function (body) {
-          return {
-            statusCode: 200,
-            playerResult: body.playerResult != null ? body.playerResult : null,
-            officialPlayerName: body.officialPlayerName != null ? body.officialPlayerName : null,
-            teamAgainst: body.teamAgainst != null ? body.teamAgainst : null,
-            timeAndDateEST: body.timeAndDateEST != null ? body.timeAndDateEST : null,
-            errorMessage: null
-          };
-        }).catch(function () {
-          return emptyResult(500, 'Invalid response from server');
-        });
-      }
-      return response.json().then(function (body) {
-        return emptyResult(status, (body && body.errorMessage) ? body.errorMessage : 'Request failed (' + status + ')');
-      }).catch(function () {
-        return emptyResult(status, 'Request failed (' + status + ')');
-      });
-    }).catch(function () {
-      return emptyResult(503, 'Network error: could not reach the server');
-    });
-  }
+    async function sendPredictRequest(cleanedName) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-  global.cleanPlayerName = cleanPlayerName;
-  global.submitPlayerNameAndGetPrediction = submitPlayerNameAndGetPrediction;
-  global.getPredictUrl = getPredictUrl;
-})(typeof window !== 'undefined' ? window : this);
+        try {
+            const res = await fetch(PREDICT_ENDPOINT, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                body: JSON.stringify({ query: cleanedName }),
+                signal: controller.signal,
+            });
+            return res;
+        } finally {
+            clearTimeout(timeout);
+        }
+    }
+
+    function decodeResponse(httpStatus, body) {
+        const result = {
+            statusCode: httpStatus,
+            playerResult: null,
+            officialPlayerName: null,
+            teamAgainst: null,
+            timeAndDateEST: null,
+            errorMessage: null,
+        };
+
+        if (!body || typeof body !== "object") {
+            result.errorMessage = "Received an invalid response from the server.";
+            return result;
+        }
+
+        if (typeof body.prediction === "number") {
+            result.playerResult = body.prediction;
+        }
+
+        const meta = body.metadata || {};
+        result.officialPlayerName =
+            meta.player_name || meta.cleaned_query || null;
+        result.teamAgainst =
+            meta.opponent || meta.team_against || null;
+        result.timeAndDateEST =
+            meta.game_time || meta.game_datetime_est || null;
+
+        const errors = Array.isArray(body.errors) ? body.errors : [];
+        if (errors.length > 0) {
+            result.errorMessage = errors.join("; ");
+        }
+
+        if (httpStatus === 404 && !result.errorMessage) {
+            result.errorMessage =
+                "Player not found. Please check the spelling and try again.";
+        } else if (httpStatus === 422 && !result.errorMessage) {
+            result.errorMessage =
+                "This player is currently injured and cannot be predicted. Please try another player.";
+        } else if (httpStatus >= 500 && !result.errorMessage) {
+            result.errorMessage =
+                "The server encountered an error. Please try again later.";
+        }
+
+        return result;
+    }
+
+    async function submitPlayerNameAndGetPrediction(rawInput) {
+        const cleaned = sanitizePlayerName(rawInput);
+        if (!cleaned) {
+            return {
+                statusCode: 422,
+                playerResult: null,
+                officialPlayerName: null,
+                teamAgainst: null,
+                timeAndDateEST: null,
+                errorMessage:
+                    "Invalid player name.",
+            };
+        }
+
+
+        let httpResponse;
+        try {
+            httpResponse = await sendPredictRequest(cleaned);
+        } catch (err) {
+            const isTimeout = err.name === "AbortError";
+            return {
+                statusCode: isTimeout ? 408 : 0,
+                playerResult: null,
+                officialPlayerName: null,
+                teamAgainst: null,
+                timeAndDateEST: null,
+                errorMessage: isTimeout
+                    ? "Request timed out. The server may be busy — please try again."
+                    : "Unable to connect to the prediction server. Please check your connection and try again.",
+            };
+        }
+
+        let body;
+        try {
+            body = await httpResponse.json();
+        } catch (_) {
+            return {
+                statusCode: httpResponse.status,
+                playerResult: null,
+                officialPlayerName: null,
+                teamAgainst: null,
+                timeAndDateEST: null,
+                errorMessage: "Received a malformed response from the server.",
+            };
+        }
+
+
+        return decodeResponse(httpResponse.status, body);
+    }
+
+    window.submitPlayerNameAndGetPrediction = submitPlayerNameAndGetPrediction;
+    window.sanitizePlayerName = sanitizePlayerName;
+})();

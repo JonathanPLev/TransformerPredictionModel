@@ -1,4 +1,4 @@
-const API_URL = 'server'; //replace
+const API_URL = (window.__PREDICT_API_BASE__ || '') + '/predict';
 
 //loading messages
 const loadingMessages = [
@@ -92,7 +92,7 @@ async function sendToBackend(playerName) {
             'Accept': 'application/json'
         },
         body: JSON.stringify({
-            playerName: playerName
+            query: playerName
         })
     });
 
