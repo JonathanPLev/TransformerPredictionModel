@@ -2,10 +2,44 @@ from nba_api.stats.static import players
 import pandas as pd
 import sqlalchemy as sqla
 from datetime import datetime
+import nbainjuries
+from zoneinfo import ZoneInfo
 
 engine = sqla.create_engine("postgresql+psycopg2://nba:nba@172.24.196.46:5432/nba")
 
+"""
+nbainjuries requires JVM, make sure to export path for the library to return report
+
+eg: ❯ export JAVA_HOME=$(/usr/libexec/java_home -v 18 -a arm64)                                                                              ─╯
+    ❯ echo "$JAVA_HOME"                                                                                                                      ─╯
+"""
+def injury_status(player_name_first: str, player_name_last: str) -> pd.DataFrame | None:
+    eastern_time_zone = ZoneInfo("America/New_York")
+    current_time = datetime.now(eastern_time_zone)
+
+    minute = 30 if current_time.minute >= 30 else 0
+    timestamp = current_time.replace(minute=minute, second=0, microsecond=0)
+
+    report = nbainjuries.injury.get_reportdata(timestamp=timestamp.replace(tzinfo=None), return_df=True)
+
+    player_name = f"{player_name_last.strip()}, {player_name_first.strip()}".lower()
+    names = report["Player Name"].astype(str).str.strip().str.lower()
+    
+    player_report = report[names == player_name]
+
+    if player_report.empty:
+        return None
+    else:
+        return player_report
+    
+# print(injury_status("Stephen", "Curry"))
+# print(injury_status("Lebron", "James"))
+
+def _status():
+    pass
+
 def fetch_player_data(player_name: str):
+
     player_found = players.find_players_by_full_name(player_name)
 
     if not player_found:
