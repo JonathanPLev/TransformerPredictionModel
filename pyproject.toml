@@ -12,6 +12,9 @@ dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
     "urllib3>=2.6.3",       
+    "sqlalchemy>=2.0.46",
+    "psycopg2-binary>=2.9.11",
+    "pandas>=2.3.3",
 ]
 
 
