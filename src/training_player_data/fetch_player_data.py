@@ -192,8 +192,16 @@ def build_prediction_inputs(player_name: str):
         # 3) injury
         inj = injury_status(first_name, last_name)
         if inj is not None:
-            print(inj[["Player Name", "Current Status", "Reason"]].head(1))
-            return None, 422
+            status = str(inj.iloc[0].get("Current Status", "")).strip().lower()
+            print("INJURY MATCH:", inj[["Player Name", "Current Status", "Reason"]].head(1).to_string(index=False))
+            print("STATUS NORMALIZED:", status)
+
+            # block only if truly not expected to play
+            BLOCK = {"out", "out for season", "inactive"}
+            if status in BLOCK:
+                return None, 422
+
+    # otherwise allow prediction (questionable/probable/etc)
 
         # 4) schedule (days_rest + opponent)
         sched = schedule_status(features, team_name)
@@ -208,7 +216,8 @@ def build_prediction_inputs(player_name: str):
     except Exception:
         return None, 404
 
-df, code = build_prediction_inputs("Stephen Curry")
+#test
+df, code = build_prediction_inputs("Lebron James")
 print(code)
 if df is not None:
-    print(df[["person_id","game_date","points","days_rest","opponent"]].tail())
+    print(df)
