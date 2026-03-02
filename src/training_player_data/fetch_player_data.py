@@ -210,3 +210,4 @@ def build_prediction_inputs(player_name: str):
 df, days_rest, opponent_id, code = build_prediction_inputs("LeBron James")
 print(df)
 print(days_rest, opponent_id, code)
+
