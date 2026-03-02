@@ -70,7 +70,9 @@ def fetch_player_data(player_name: str) -> tuple[pd.DataFrame, str]:
             sqla.text("""
                         SELECT person_id, player_team_name, game_id, game_date
                         FROM player_statistics
-                        WHERE person_id = :pid
+                        WHERE person_id = :pid AND game_type = 'Regular Season'
+                        AND game_date IS NOT NULL
+                        AND player_team_name IS NOT NULL
                         ORDER BY game_date DESC
                         LIMIT 1;
             """),
@@ -117,6 +119,7 @@ def schedule_status(features, team_name):
             {"player_team": team_name, "start_time": start_time, "end_time": end_time},
         ).fetchall()
 
+    print("schedule_status:", team_name, "rows=", len(game_rows), "window=", start_time, "->", end_time)
     if not game_rows:
         return None
 
@@ -183,11 +186,18 @@ def schedule_status(features, team_name):
 def build_prediction_inputs(player_name: str):
     try:
         features, team_name = fetch_player_data(player_name)
+        print("    team_name =", team_name)
+        print("    features rows =", 0 if features is None else len(features))
         if features is None or features.empty:
             return None, None, None, 404
 
         # injury check
         found = players.find_players_by_full_name(player_name)
+        print("    found =", found)
+        if not found:
+            print("    ERROR: nba_api did not find player")
+            return None, None, None, 404
+
         full_name = found[0]["full_name"]
         first_name, last_name = full_name.split()[0], full_name.split()[-1]
 
@@ -199,7 +209,8 @@ def build_prediction_inputs(player_name: str):
 
         sched = schedule_status(features, team_name)
         if sched is None:
-            return None, None, None, 404
+            # still return player stats, but no schedule features
+            return features, None, None, 200
 
         return features, sched["days_rest"], sched["opponent_id"], 200
 
