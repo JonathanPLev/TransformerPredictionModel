@@ -106,7 +106,9 @@ def schedule_status(features, team_name):
                     gameid,
                     NULLIF(gamedatetimeest,'')::timestamp AS game_ts_est,
                     hometeamname,
-                    awayteamname
+                    awayteamname,
+                    hometeamid,
+                    awayteamid
                 FROM games_raw
                 WHERE (:player_team = hometeamname OR :player_team = awayteamname)
                   AND NULLIF(gamedatetimeest,'')::timestamp BETWEEN :start_time AND :end_time
@@ -118,7 +120,8 @@ def schedule_status(features, team_name):
     if not game_rows:
         return None
 
-    player_games = pd.DataFrame(game_rows, columns=["gameid", "game_ts_est", "hometeamname", "awayteamname"])
+    player_games = pd.DataFrame(game_rows, columns=["gameid", "game_ts_est", "hometeamname", 
+                                                    "awayteamname", "hometeamid", "awayteamid"])
     player_games = player_games.dropna(subset=["game_ts_est"]).sort_values("game_ts_est")
 
     # Split games
@@ -160,12 +163,18 @@ def schedule_status(features, team_name):
     is_home = (team_name == home_team)
     opponent = away_team if is_home else home_team
 
+    if is_home:
+        opponent_id = target_game["awayteamid"]
+    else:
+        opponent_id = target_game["hometeamid"]
+
     return {
         "currently_playing": currently_playing,
         "days_rest": int(days_rest),
         "next_game_id": int(target_game["gameid"]),
         "next_game_ts_est": str(target_game["game_ts_est"]),
         "opponent": opponent,
+        "opponent_id": opponent_id,
         "is_home": bool(is_home),
         "home_team": home_team,
         "away_team": away_team,
@@ -173,51 +182,31 @@ def schedule_status(features, team_name):
 
 def build_prediction_inputs(player_name: str):
     try:
-        # 1) stats + team
         features, team_name = fetch_player_data(player_name)
-        if features is None or features.empty or not team_name:
-            return None, 404
+        if features is None or features.empty:
+            return None, None, None, 404
 
-        # 2) official name -> first/last
+        # injury check
         found = players.find_players_by_full_name(player_name)
-        if not found or len(found) != 1:
-            return None, 404
+        full_name = found[0]["full_name"]
+        first_name, last_name = full_name.split()[0], full_name.split()[-1]
 
-        full_name = found[0].get("full_name") or player_name
-        parts = full_name.split()
-        if len(parts) < 2:
-            return None, 404
-        first_name, last_name = parts[0], parts[-1]
-
-        # 3) injury
         inj = injury_status(first_name, last_name)
         if inj is not None:
             status = str(inj.iloc[0].get("Current Status", "")).strip().lower()
-            print("INJURY MATCH:", inj[["Player Name", "Current Status", "Reason"]].head(1).to_string(index=False))
-            print("STATUS NORMALIZED:", status)
+            if status in {"out", "out for season", "inactive"}:
+                return None, None, None, 422
 
-            # block only if truly not expected to play
-            BLOCK = {"out", "out for season", "inactive"}
-            if status in BLOCK:
-                return None, 422
-
-    # otherwise allow prediction (questionable/probable/etc)
-
-        # 4) schedule (days_rest + opponent)
         sched = schedule_status(features, team_name)
         if sched is None:
-            return None, 404
+            return None, None, None, 404
 
-        out = features.copy()
-        out["days_rest"] = sched["days_rest"]
-        out["opponent"] = sched["opponent"]
-        return out, 200
+        return features, sched["days_rest"], sched["opponent_id"], 200
 
     except Exception:
-        return None, 404
+        return None, None, None, 404
 
 #test
-df, code = build_prediction_inputs("Lebron James")
-print(code)
-if df is not None:
-    print(df)
+df, days_rest, opponent_id, code = build_prediction_inputs("LeBron James")
+print(df)
+print(days_rest, opponent_id, code)
