@@ -4,9 +4,16 @@ import sqlalchemy as sqla
 from datetime import datetime
 import nbainjuries
 from zoneinfo import ZoneInfo
+from pathlib import Path
 
 engine = sqla.create_engine("postgresql+psycopg2://nba:nba@172.24.196.46:5432/nba")
 
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parent
+SCHEDULE_CSV = ROOT / "nba_dataset" / "LeagueSchedule25_26.csv"
+
+# Cache so we don't re-read the CSV for every request
+_SCHEDULE_DF: pd.DataFrame | None = None
 """
 nbainjuries requires JVM, make sure to export path for the library to return report
 
@@ -87,95 +94,117 @@ def fetch_player_data(player_name: str) -> tuple[pd.DataFrame, str]:
 # features, team = fetch_player_data("LeBron James")
 # print(features.tail())
 
-def schedule_status(features, team_name):
-    current_time = datetime.now()
+def _load_schedule_df() -> pd.DataFrame:
+    global _SCHEDULE_DF
+    if _SCHEDULE_DF is not None:
+        return _SCHEDULE_DF
 
+    df = pd.read_csv(SCHEDULE_CSV)
+
+    # Normalize types / names
+    df["gameDateTimeEst"] = pd.to_datetime(df["gameDateTimeEst"], errors="coerce")
+    df["homeTeamName"] = df["homeTeamName"].astype(str).str.strip()
+    df["awayTeamName"] = df["awayTeamName"].astype(str).str.strip()
+
+    # IDs sometimes come in as floats from CSV; force numeric -> Int64
+    for c in ["gameId", "homeTeamId", "awayTeamId"]:
+        df[c] = pd.to_numeric(df[c], errors="coerce").astype("Int64")
+
+    # Drop rows without datetime
+    df = df.dropna(subset=["gameDateTimeEst"])
+
+    _SCHEDULE_DF = df
+    return df
+
+
+def _infer_team_id_from_csv(schedule_df: pd.DataFrame, team_name: str) -> int | None:
+    """
+    Map team_name -> NBA teamId using schedule rows.
+    """
+    home_ids = schedule_df.loc[schedule_df["homeTeamName"] == team_name, "homeTeamId"].dropna()
+    away_ids = schedule_df.loc[schedule_df["awayTeamName"] == team_name, "awayTeamId"].dropna()
+    ids = pd.concat([home_ids, away_ids], ignore_index=True)
+
+    if ids.empty:
+        return None
+
+    # Most common id wins
+    return int(ids.value_counts().idxmax())
+
+
+def schedule_status(features: pd.DataFrame, team_name: str):
+    tz = ZoneInfo("America/New_York")
+    now = datetime.now(tz)
+
+    # Prep features
     features = features.copy()
     features["game_date"] = pd.to_datetime(features["game_date"], errors="coerce")
     features = features.dropna(subset=["game_date"]).sort_values("game_date")
-
     if features.empty:
         return None
 
-    
-    start_time = current_time - pd.Timedelta(days=2)
-    end_time = current_time + pd.Timedelta(days=14)
-
-    with engine.connect() as conn:
-        game_rows = conn.execute(
-            sqla.text("""
-                SELECT
-                    gameid,
-                    NULLIF(gamedatetimeest,'')::timestamp AS game_ts_est,
-                    hometeamname,
-                    awayteamname,
-                    hometeamid,
-                    awayteamid
-                FROM games_raw
-                WHERE (:player_team = hometeamname OR :player_team = awayteamname)
-                  AND NULLIF(gamedatetimeest,'')::timestamp BETWEEN :start_time AND :end_time
-                ORDER BY game_ts_est ASC;
-            """),
-            {"player_team": team_name, "start_time": start_time, "end_time": end_time},
-        ).fetchall()
-
-    print("schedule_status:", team_name, "rows=", len(game_rows), "window=", start_time, "->", end_time)
-    if not game_rows:
+    schedule_df = _load_schedule_df()
+    team_id = _infer_team_id_from_csv(schedule_df, team_name)
+    if team_id is None:
+        print(f"schedule_status(csv): cannot find team_id for team_name={team_name!r} in {SCHEDULE_CSV}")
         return None
 
-    player_games = pd.DataFrame(game_rows, columns=["gameid", "game_ts_est", "hometeamname", 
-                                                    "awayteamname", "hometeamid", "awayteamid"])
-    player_games = player_games.dropna(subset=["game_ts_est"]).sort_values("game_ts_est")
+    # Time window
+    start_time = (now - pd.Timedelta(days=2)).replace(tzinfo=None)   # schedule CSV is naive EST
+    end_time   = (now + pd.Timedelta(days=14)).replace(tzinfo=None)
 
-    # Split games
-    future_games = player_games[player_games["game_ts_est"] > current_time].copy()
-    started_games = player_games[player_games["game_ts_est"] <= current_time].copy()
+    # Filter schedule
+    team_games = schedule_df[
+        ((schedule_df["homeTeamId"] == team_id) | (schedule_df["awayTeamId"] == team_id)) &
+        (schedule_df["gameDateTimeEst"].between(start_time, end_time))
+    ].copy()
 
-    # Detect in-progress game: started within last X hours
+    print("schedule_status(csv):", team_name, "team_id=", team_id, "rows=", len(team_games),
+          "window=", start_time, "->", end_time)
+
+    if team_games.empty:
+        return None
+
+    team_games = team_games.sort_values("gameDateTimeEst")
+
+    # For comparisons, localize naive EST to NY tz
+    team_games["game_ts_est"] = pd.to_datetime(team_games["gameDateTimeEst"]).dt.tz_localize(tz)
+
+    future_games = team_games[team_games["game_ts_est"] > now].copy()
+    started_games = team_games[team_games["game_ts_est"] <= now].copy()
+
+    # in-progress: started within last X hours
     IN_PROGRESS_HOURS = 3
-    in_progress = started_games[started_games["game_ts_est"] >= (current_time - pd.Timedelta(hours=IN_PROGRESS_HOURS))]
-
+    in_progress = started_games[started_games["game_ts_est"] >= (now - pd.Timedelta(hours=IN_PROGRESS_HOURS))]
     currently_playing = not in_progress.empty
 
     if currently_playing:
-        # If currently playing, anchor rest at the START time of the current game
-        current_game = in_progress.iloc[-1]
-        anchor_dt = current_game["game_ts_est"]
-
-        future_after = player_games[player_games["game_ts_est"] > anchor_dt]
+        anchor_dt = in_progress.iloc[-1]["game_ts_est"]
+        future_after = team_games[team_games["game_ts_est"] > anchor_dt]
         if future_after.empty:
             return None
-        target_game = future_after.iloc[0]
+        target = future_after.iloc[0]
     else:
-    
-        anchor_dt = features["game_date"].iloc[-1]
-
+        # anchor at last played game_date from stats
+        anchor_dt = pd.to_datetime(features["game_date"].iloc[-1]).tz_localize(tz)
         if future_games.empty:
             return None
-        target_game = future_games.iloc[0]
+        target = future_games.iloc[0]
 
-    # Compute days_rest as difference in calendar days between anchor date and next game date
-    next_dt = pd.to_datetime(target_game["game_ts_est"])
-    anchor_date = pd.to_datetime(anchor_dt).date()
-    next_date = next_dt.date()
-    days_rest = max(0, (next_date - anchor_date).days)
+    # days_rest in calendar days
+    days_rest = max(0, (target["game_ts_est"].date() - anchor_dt.date()).days)
 
-    # Opponent + home/away
-    home_team = target_game["hometeamname"]
-    away_team = target_game["awayteamname"]
+    home_team = str(target["homeTeamName"])
+    away_team = str(target["awayTeamName"])
     is_home = (team_name == home_team)
     opponent = away_team if is_home else home_team
-
-    if is_home:
-        opponent_id = target_game["awayteamid"]
-    else:
-        opponent_id = target_game["hometeamid"]
+    opponent_id = int(target["awayTeamId"] if is_home else target["homeTeamId"])
 
     return {
         "currently_playing": currently_playing,
         "days_rest": int(days_rest),
-        "next_game_id": int(target_game["gameid"]),
-        "next_game_ts_est": str(target_game["game_ts_est"]),
+        "next_game_id": int(target["gameId"]),
+        "next_game_ts_est": str(target["game_ts_est"]),
         "opponent": opponent,
         "opponent_id": opponent_id,
         "is_home": bool(is_home),
