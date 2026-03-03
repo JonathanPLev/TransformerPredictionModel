@@ -247,7 +247,7 @@ def build_prediction_inputs(player_name: str):
         return None, None, None, 404
 
 #test
-df, days_rest, opponent_id, code = build_prediction_inputs("LeBron James")
+df, days_rest, opponent_id, code = build_prediction_inputs("Daniel Gafford")
 print(df)
 print(days_rest, opponent_id, code)
 
