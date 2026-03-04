@@ -8,11 +8,15 @@ def _pick_date_col(df: pd.DataFrame) -> str:
             return c
     raise ValueError("No known date column found in df")
 
+# Must match train_one_player.py: LAG_K_DEFAULT=5 and same lag_base
+LAG_K = 5
+
+
 def _build_last_row(df: pd.DataFrame, window: int) -> pd.DataFrame:
     base_feats = [
-        "points","numMinutes","assists","reboundsTotal","turnovers",
-        "fieldGoalsAttempted","threePointersAttempted","freeThrowsAttempted",
-        "steals","blocks","plusMinusPoints",
+        "points", "numMinutes", "assists", "reboundsTotal", "turnovers",
+        "fieldGoalsAttempted", "threePointersAttempted", "freeThrowsAttempted",
+        "steals", "blocks", "plusMinusPoints",
     ]
     lag_base = ["reboundsTotal", "assists", "numMinutes"]
 
@@ -37,12 +41,19 @@ def _build_last_row(df: pd.DataFrame, window: int) -> pd.DataFrame:
     roll_df.columns = [f"{c}_roll{window}" for c in feats_present]
     df = pd.concat([df, roll_df], axis=1)
 
+    # Lag 1..LAG_K (must match train_one_player.py so preproc columns align)
     lag_present = [c for c in lag_base if c in df.columns]
-    lag_df = df[lag_present].shift(1)
-    lag_df.columns = [f"{c}_lag1" for c in lag_present]
-    df = pd.concat([df, lag_df], axis=1)
+    lag_dfs = []
+    for k in range(1, LAG_K + 1):
+        tmp = df[lag_present].shift(k)
+        tmp.columns = [f"{c}_lag{k}" for c in lag_present]
+        lag_dfs.append(tmp)
+    if lag_dfs:
+        df = pd.concat([df] + lag_dfs, axis=1)
 
-    engineered_cols = list(roll_df.columns) + list(lag_df.columns) + ["days_rest", "opp_id"]
+    roll_cols = [f"{c}_roll{window}" for c in feats_present]
+    lag_cols = [f"{c}_lag{k}" for c in lag_present for k in range(1, LAG_K + 1)]
+    engineered_cols = roll_cols + lag_cols + ["days_rest", "opp_id"]
 
     last = df.dropna(subset=engineered_cols).tail(1)
     if last.empty:

@@ -83,25 +83,44 @@ function cleanPlayerString(input) {
     return cleaned;
 }
 
-//sending to backend (change accordingly)
+//sending to backend — normalizes API response for handleResponse
 async function sendToBackend(playerName) {
-    const response = await fetch(API_URL, {
+    const apiBase = (window.__PREDICT_API_BASE__ || "").replace(/\/+$/, "");
+    const response = await fetch(apiBase + "/predict", {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'Accept': 'application/json'
         },
-        body: JSON.stringify({
-            query: playerName
-        })
+        body: JSON.stringify({ query: playerName })
     });
 
     const statusCode = response.status;
-    const data = await response.json();
+    let data;
+    try {
+        data = await response.json();
+    } catch (_) {
+        return {
+            statusCode: statusCode,
+            prediction: null,
+            playerName: null,
+            opponent: null,
+            gameTime: null,
+            errorMessage: "Invalid response from server."
+        };
+    }
+
+    const meta = data.metadata || {};
+    const errors = Array.isArray(data.errors) ? data.errors : [];
+    const errorMessage = errors.length ? errors.join("; ") : null;
 
     return {
-        statusCode: statusCode,
-        ...data
+        statusCode: data.status_code ?? statusCode,
+        prediction: typeof data.prediction === "number" ? data.prediction : null,
+        playerName: meta.player_name || meta.cleaned_query || null,
+        opponent: meta.opponent || meta.team_against || null,
+        gameTime: meta.game_time || meta.game_datetime_est || null,
+        errorMessage: errorMessage
     };
 }
 

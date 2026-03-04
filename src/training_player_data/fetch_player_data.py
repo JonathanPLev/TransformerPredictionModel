@@ -12,7 +12,6 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 SCHEDULE_CSV = ROOT / "nba_dataset" / "LeagueSchedule25_26.csv"
 
-# Cache so we don't re-read the CSV for every request
 _SCHEDULE_DF: pd.DataFrame | None = None
 """
 nbainjuries requires JVM, make sure to export path for the library to return report
@@ -39,8 +38,6 @@ def injury_status(player_name_first: str, player_name_last: str) -> pd.DataFrame
     else:
         return player_report
     
-# print(injury_status("Stephen", "Curry"))
-# print(injury_status("Lebron", "James"))
 
 def fetch_player_data(player_name: str) -> tuple[pd.DataFrame, str]:
 
@@ -246,8 +243,5 @@ def build_prediction_inputs(player_name: str):
     except Exception:
         return None, None, None, 404
 
-#test
-df, days_rest, opponent_id, code = build_prediction_inputs("Daniel Gafford")
-print(df)
-print(days_rest, opponent_id, code)
+ 
 
