@@ -6,15 +6,12 @@ KAGGLE_DATASET="eoinamoore/historical-nba-data-and-player-box-scores"
 GDRIVE_FOLDER_URL="https://drive.google.com/drive/folders/1MzLBNBKa82FIo7qYoS6BKte3DM8-Wbyp?usp=sharing"
 OUT_DIR="Data"
 
-
 # Optional: set DOWNLOAD_INJURY=1 to also refresh InjuryData.csv from Google Drive
 DOWNLOAD_INJURY="${DOWNLOAD_INJURY:-0}"
-
 
 mkdir -p "$OUT_DIR"
 
 echo "==> Downloading Kaggle data..."
-
 
 # Games.csv (Kaggle)
 kaggle datasets download -d "$KAGGLE_DATASET" -f Games.csv --force
@@ -31,7 +28,6 @@ fi
 
 
 # PlayerStatistics.csv (Kaggle)
-
 kaggle datasets download -d "$KAGGLE_DATASET" -f PlayerStatistics.csv --force
 
 if [[ -f PlayerStatistics.csv.zip ]]; then
@@ -41,6 +37,20 @@ elif [[ -f PlayerStatistics.csv ]]; then
   mv -f PlayerStatistics.csv "$OUT_DIR/PlayerStatistics.csv"
 else
   echo "ERROR: PlayerStatistics.csv not found after Kaggle download"
+  exit 1
+fi
+
+
+# LeagueSchedule25_26.csv (Kaggle)   <-- ADDED
+kaggle datasets download -d "$KAGGLE_DATASET" -f LeagueSchedule25_26.csv --force
+
+if [[ -f LeagueSchedule25_26.csv.zip ]]; then
+  unzip -o LeagueSchedule25_26.csv.zip -d "$OUT_DIR" >/dev/null
+  rm -f LeagueSchedule25_26.csv.zip
+elif [[ -f LeagueSchedule25_26.csv ]]; then
+  mv -f LeagueSchedule25_26.csv "$OUT_DIR/LeagueSchedule25_26.csv"
+else
+  echo "ERROR: LeagueSchedule25_26.csv not found after Kaggle download"
   exit 1
 fi
 
@@ -72,4 +82,4 @@ fi
 
 echo ""
 echo "✅ Data refresh complete:"
-ls -lh "$OUT_DIR" | egrep "Games.csv|PlayerStatistics.csv|InjuryData.csv"
+ls -lh "$OUT_DIR" | egrep "Games.csv|PlayerStatistics.csv|LeagueSchedule25_26.csv|InjuryData.csv"

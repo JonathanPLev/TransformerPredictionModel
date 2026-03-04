@@ -52,6 +52,11 @@ SET
   away_team_city = EXCLUDED.away_team_city,
   away_team_name = EXCLUDED.away_team_name;
 
+  INSERT INTO games (game_id)
+  SELECT DISTINCT NULLIF(gameId,'')::REAL::INT
+  FROM player_statistics_raw
+  WHERE NULLIF(gameId,'') IS NOT NULL
+  ON CONFLICT (game_id) DO NOTHING;	
 
 -- Upsert cleaned player statistics (dedupe per person_id + game_id)
 INSERT INTO player_statistics (
@@ -91,42 +96,42 @@ INSERT INTO player_statistics (
   turnovers,
   plus_minus_points
 )
-SELECT DISTINCT ON (person_id, game_id)
-  first_name,
-  last_name,
-  person_id,
-  game_id,
-  game_date,
-  player_team_city,
-  player_team_name,
-  opponent_team_city,
-  opponent_team_name,
-  game_type,
-  game_label,
-  game_sublabel,
-  series_game_number,
-  win,
-  home,
-  num_minutes,
-  points,
-  assists,
-  blocks,
-  steals,
-  field_goals_attempted,
-  field_goals_made,
-  field_goals_percentage,
-  three_pointers_attempted,
-  three_pointers_made,
-  three_pointers_percentage,
-  free_throws_attempted,
-  free_throws_made,
-  free_throws_percentage,
-  rebounds_defensive,
-  rebounds_offensive,
-  rebounds_total,
-  fouls_personal,
-  turnovers,
-  plus_minus_points
+SELECT DISTINCT ON (s.person_id, s.game_id)
+  s.first_name,
+  s.last_name,
+  s.person_id,
+  s.game_id,
+  s.game_date,
+  s.player_team_city,
+  s.player_team_name,
+  s.opponent_team_city,
+  s.opponent_team_name,
+  s.game_type,
+  s.game_label,
+  s.game_sublabel,
+  s.series_game_number,
+  s.win,
+  s.home,
+  s.num_minutes,
+  s.points,
+  s.assists,
+  s.blocks,
+  s.steals,
+  s.field_goals_attempted,
+  s.field_goals_made,
+  s.field_goals_percentage,
+  s.three_pointers_attempted,
+  s.three_pointers_made,
+  s.three_pointers_percentage,
+  s.free_throws_attempted,
+  s.free_throws_made,
+  s.free_throws_percentage,
+  s.rebounds_defensive,
+  s.rebounds_offensive,
+  s.rebounds_total,
+  s.fouls_personal,
+  s.turnovers,
+  s.plus_minus_points
 FROM (
   SELECT
     firstName                                  AS first_name,
@@ -144,7 +149,15 @@ FROM (
     NULLIF(seriesGameNumber,'')::REAL::INT     AS series_game_number,
     NULLIF(win,'')::BOOLEAN                    AS win,
     NULLIF(home,'')::BOOLEAN                   AS home,
-    NULLIF(numMinutes,'')::REAL                AS num_minutes,
+CASE
+  WHEN NULLIF(numMinutes,'') IS NULL THEN NULL
+  WHEN numMinutes ~ '^\d+:\d{2}$' THEN
+    split_part(numMinutes, ':', 1)::real
+    + split_part(numMinutes, ':', 2)::real / 60.0
+  WHEN numMinutes ~ '^\d+(\.\d+)?$' THEN
+    numMinutes::real
+  ELSE NULL
+    END AS num_minutes,
     NULLIF(points,'')::REAL::INT               AS points,
     NULLIF(assists,'')::REAL::INT              AS assists,
     NULLIF(blocks,'')::REAL::INT               AS blocks,
@@ -170,7 +183,8 @@ FROM (
     AND NULLIF(gameId,'') IS NOT NULL
 ) s
 -- keep the most recent row if duplicates exist
-ORDER BY person_id, game_id, game_ts DESC NULLS LAST
+
+ORDER BY s.person_id, s.game_id, s.game_ts DESC NULLS LAST
 ON CONFLICT (person_id, game_id) DO UPDATE
 SET
   first_name = EXCLUDED.first_name,
