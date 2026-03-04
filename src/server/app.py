@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import unicodedata
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -14,10 +15,18 @@ from src.training_player_data.fetch_player_data import injury_status
 
 from src.server.config import MODEL_PATH, PREPROC_PATH
 from src.server.model_loader import load_model_and_preproc
-from src.server.db_local import fetch_player_df
+from src.server.db_local import fetch_player_df, get_player_team_name, check_missed_games
 from src.server.service import predict_next_points
+from src.training_player_data.fetch_player_data import schedule_status
 
 INJURED_STATUSES = {"out", "out for season", "inactive"}
+
+
+def _strip_accents(s: str) -> str:
+    return "".join(
+        c for c in unicodedata.normalize("NFD", s)
+        if unicodedata.category(c) != "Mn"
+    )
 
 # Cached injury report keyed by 30-min bucket to avoid PDF file-lock
 # issues from concurrent nbainjuries calls.
@@ -41,15 +50,8 @@ def _get_cached_injury_status(first_name: str, last_name: str):
             cached = _injury_cache["report"]
             return _match_player_in_report(cached, first_name, last_name)
 
-    # Cache miss — delegate to the real function which fetches the PDF
     result = injury_status(first_name, last_name)
 
-    # Also store the full report for subsequent lookups in this window.
-    # injury_status doesn't expose the raw report, so we call it once
-    # and cache the per-player result. For full-report caching we need
-    # to replicate the fetch — but since injury_status already downloaded
-    # the PDF, subsequent calls within the same process will hit the OS
-    # file cache. This is acceptable for demo throughput.
     return result
 
 
@@ -63,25 +65,25 @@ def _match_player_in_report(report, first_name: str, last_name: str):
     return match if not match.empty else None
 
 
-def check_player_availability(display_name: str) -> tuple[bool, str | None]:
-    """
-    Layer 1 — nba_api static ``is_active`` flag (retired / permanently inactive).
-    Layer 2 — nbainjuries real-time injury report via fetch_player_data.injury_status.
-    """
+def check_player_availability(
+    display_name: str, has_db_data: bool = False
+) -> tuple[bool, str | None]:
     found = nba_players.find_players_by_full_name(display_name)
     if not found:
         return False, None
 
     player = found[0]
 
-    if player.get("is_active") is False:
+    if player.get("is_active") is False and not has_db_data:
         return True, "Player is not currently active in the NBA"
 
     first_name = player.get("first_name", "")
     last_name = player.get("last_name", "")
     if first_name and last_name:
         try:
-            inj_df = injury_status(first_name, last_name)
+            inj_df = injury_status(
+                _strip_accents(first_name), _strip_accents(last_name)
+            )
             if inj_df is not None and not inj_df.empty:
                 status = str(inj_df.iloc[0].get("Current Status", "")).strip()
                 print(f"  [injury] {display_name} -> status={status!r}")
@@ -145,17 +147,62 @@ def predict(req: PredictRequest):
     # pass-through status codes from fetch layer
     if status_code != 200:
         base["status_code"] = status_code
-        base["errors"].append(meta.get("reason", "error") if meta else "error")
         return JSONResponse(status_code=status_code, content=base)
 
-    # --- injury / inactive gate ---
+    has_recent_data = False
+    if df is not None and "gameDate" in df.columns:
+        try:
+            import pandas as pd
+            latest = pd.to_datetime(df["gameDate"], errors="coerce").max()
+            if pd.notna(latest):
+                latest = latest.tz_localize(None) if latest.tzinfo else latest
+                cutoff = pd.Timestamp.now() - pd.Timedelta(days=365)
+                has_recent_data = latest > cutoff
+                print(f"  [recency] latest game={latest.date()}, cutoff={cutoff.date()}, recent={has_recent_data}")
+        except Exception:
+            pass
+
     player_name = base["metadata"].get("player_name") or base["metadata"].get("cleaned_query")
-    unavailable, reason = check_player_availability(player_name or "")
+    unavailable, reason = check_player_availability(player_name or "", has_db_data=has_recent_data)
     print(f"[availability] player={player_name!r}  unavailable={unavailable}  reason={reason!r}")
     if unavailable:
         base["status_code"] = 422
-        base["errors"].append(reason or "Player is currently unavailable")
+        is_inactive = reason and "not currently active" in reason
+        base["metadata"]["error_type"] = "inactive" if is_inactive else "injured"
         return JSONResponse(status_code=422, content=base)
+
+    # --- missed-games check (catches long-term injuries not on today's report) ---
+    MISSED_GAMES_THRESHOLD = 3
+    person_id = base["metadata"].get("person_id")
+    if person_id:
+        team_name = get_player_team_name(person_id)
+        if team_name:
+            missed, last_played = check_missed_games(person_id, team_name)
+            print(f"[missed-games] {player_name}: missed={missed}, last_played={last_played}")
+            if missed >= MISSED_GAMES_THRESHOLD:
+                base["status_code"] = 422
+                base["metadata"]["error_type"] = "injured"
+                return JSONResponse(status_code=422, content=base)
+
+    # --- schedule lookup (opponent + game time) ---
+    if person_id:
+        try:
+            if not team_name:
+                team_name = get_player_team_name(person_id)
+            if team_name:
+                sched_df = df.rename(columns={"gameDate": "game_date"})
+                sched = schedule_status(sched_df, team_name)
+                if sched:
+                    base["metadata"]["opponent"] = sched["opponent"]
+                    try:
+                        from datetime import datetime as _dt
+                        raw_ts = sched["next_game_ts_est"]
+                        parsed = _dt.fromisoformat(str(raw_ts))
+                        base["metadata"]["game_datetime_est"] = parsed.strftime("%b %#d at %#I:%M %p EST")
+                    except Exception:
+                        base["metadata"]["game_datetime_est"] = sched["next_game_ts_est"]
+        except Exception as exc:
+            print(f"  [schedule] error: {exc}")
 
     # --- prediction ---
     try:
@@ -164,8 +211,8 @@ def predict(req: PredictRequest):
         base["status_code"] = 200
 
         display_name = base["metadata"].get("player_name") or base["metadata"].get("cleaned_query")
-        opp = base["metadata"].get("opponent") or base["metadata"].get("team_against")
-        game_time_est = base["metadata"].get("game_datetime_est") or base["metadata"].get("game_time")
+        opp = base["metadata"].get("opponent")
+        game_time_est = base["metadata"].get("game_datetime_est")
         if display_name and opp and game_time_est:
             log_line = (
                 f"Prediction result: {display_name} will score {pred:.1f} points "
@@ -179,6 +226,6 @@ def predict(req: PredictRequest):
 
         return JSONResponse(status_code=200, content=base)
     except Exception as e:
+        print(f"[predict] error: {e}")
         base["status_code"] = 404
-        base["errors"].append(f"Predict error: {e}")
         return JSONResponse(status_code=404, content=base)

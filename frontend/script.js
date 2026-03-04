@@ -111,11 +111,22 @@ async function sendToBackend(playerName) {
     }
 
     const meta = data.metadata || {};
-    const errors = Array.isArray(data.errors) ? data.errors : [];
-    const errorMessage = errors.length ? errors.join("; ") : null;
+    const code = data.status_code ?? statusCode;
+    const errorType = meta.error_type || null;
+
+    let errorMessage = null;
+    if (code === 404) {
+        errorMessage = "Player not found. Please check the spelling and try again.";
+    } else if (code === 422) {
+        errorMessage = errorType === "inactive"
+            ? "This player is not currently active in the NBA. Please try another player."
+            : "This player is currently injured and cannot be predicted. Please try another player.";
+    } else if (code >= 500) {
+        errorMessage = "The server encountered an error. Please try again later.";
+    }
 
     return {
-        statusCode: data.status_code ?? statusCode,
+        statusCode: code,
         prediction: typeof data.prediction === "number" ? data.prediction : null,
         playerName: meta.player_name || meta.cleaned_query || null,
         opponent: meta.opponent || meta.team_against || null,

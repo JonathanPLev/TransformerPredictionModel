@@ -77,18 +77,20 @@
         result.timeAndDateEST =
             meta.game_time || meta.game_datetime_est || null;
 
-        const errors = Array.isArray(body.errors) ? body.errors : [];
-        if (errors.length > 0) {
-            result.errorMessage = errors.join("; ");
-        }
+        const errorType = meta.error_type || null;
 
-        if (httpStatus === 404 && !result.errorMessage) {
+        if (httpStatus === 404) {
             result.errorMessage =
                 "Player not found. Please check the spelling and try again.";
-        } else if (httpStatus === 422 && !result.errorMessage) {
-            result.errorMessage =
-                "This player is currently injured and cannot be predicted. Please try another player.";
-        } else if (httpStatus >= 500 && !result.errorMessage) {
+        } else if (httpStatus === 422) {
+            if (errorType === "inactive") {
+                result.errorMessage =
+                    "This player is not currently active in the NBA. Please try another player.";
+            } else {
+                result.errorMessage =
+                    "This player is currently injured and cannot be predicted. Please try another player.";
+            }
+        } else if (httpStatus >= 500) {
             result.errorMessage =
                 "The server encountered an error. Please try again later.";
         }
