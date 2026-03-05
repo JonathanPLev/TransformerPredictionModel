@@ -34,7 +34,7 @@ itself. Airflow scheduled to run the nba_props_dag daily.
 
 3. **Access Airflow**
    - UI: http://localhost:8080  
-   - Credentials: `admin` / `M7fhanqeB2mUPSpe` (set in `docker-compose.yml`; rotate before sharing externally)
+   - Credentials: `admin` and {password} (set in `docker-compose.yml`; rotate before sharing externally)
 
 4. **Trigger the DAG**
    - In the UI, unpause `nba_sportsbook_pipeline` and click “Trigger DAG”
