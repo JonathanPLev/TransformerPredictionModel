@@ -9,7 +9,7 @@ import pickle
 from uuid import uuid4
 
 
-FEATURE_VERSION = "v6"
+FEATURE_VERSION = "v7"
 TRAINING_TABLE_NAME = "transformer_training_rows"
 DROP_PLAYER_FIRST_SEASONS = True
 
@@ -75,7 +75,6 @@ IDENTIFIER_COLS = [
     "opp_team_idx"
 ]
 
-TARGET_COLS = ROLLING_PLAYER_STAT_COLS
 
 PLAYER_FEATURE_COLS = [
     f"blended_std_{col}" for col in ROLLING_PLAYER_STAT_COLS
@@ -121,7 +120,7 @@ OPPONENT_FEATURE_COLS = [
 
 TRAINING_COLS = (
     IDENTIFIER_COLS
-    + TARGET_COLS
+    + ROLLING_PLAYER_STAT_COLS
     + PLAYER_FEATURE_COLS
     + TEAMMATE_FEATURE_COLS
     + TEAM_FEATURE_COLS
@@ -728,9 +727,12 @@ class TransformerDataGenerator:
         )["single_game_defensive_delta"].transform(
             lambda x: x.shift(1).rolling(window=3, min_periods=1).mean()
         )
-        days_since_last_game = team_profile.groupby("playerteamname")[
-            "clean_game_datetime"
-        ].diff()
+        days_since_last_game = (
+            team_profile["clean_game_datetime"].dt.normalize()
+            .groupby(team_profile["playerteamname"])
+            .diff()
+            .dt.days
+        )
 
         team_profile["rolling_10_defensive_delta"] = team_profile.groupby(
             "playerteamname"
@@ -783,7 +785,7 @@ class TransformerDataGenerator:
             team_profile["rolling_3_defensive_delta"].fillna(0),
         )
 
-        team_profile["days_since_last_game"] = days_since_last_game.dt.days.fillna(10)
+        team_profile["days_since_last_game"] = days_since_last_game.fillna(10)
 
         team_profile["is_b2b"] = (team_profile["days_since_last_game"] == 1).astype(int)
 
