@@ -119,8 +119,8 @@ TARGET_COLS = [
 
 
 
-class DataPreparer(Dataset):
-    def __init__(self, feature_cols=FEATURE_COLS, target_cols=TARGET_COLS,window_size=10):
+class DataPreparer():
+    def __init__(self, feature_cols=FEATURE_COLS, target_cols=TARGET_COLS,window_size=10, batch_size=64):
         self.engine = engine
         self.df = pd.DataFrame
         self.window_size = window_size
@@ -128,18 +128,19 @@ class DataPreparer(Dataset):
         self.target_cols = target_cols
         self.samples = []
         self.indices = []
+        self.batch_size = batch_size
 
         self.get_all_data()
-        self.setup_training_data
 
 
-    def setup_training_data(self) -> None:
-        self.df = self.df.sort_values(['personid','season','clean_game_datetime'])
+    def build_dataset_for_df(self, subset_df) -> None:
+        subset_df = subset_df.sort_values(['personid','season','clean_game_datetime']).reset_index(drop=True)
 
-        self.features = self.df[self.feature_cols].to_numpy(dtype=np.float32)
-        self.targets = self.df[self.target_cols].to_numpy(dtype=np.float32)
+        indices = []
+        features = subset_df[self.feature_cols].to_numpy(dtype=np.float32)
+        targets = subset_df[self.target_cols].to_numpy(dtype=np.float32)
 
-        for _, group in self.df.groupby(['personid', 'season']):
+        for _, group in subset_df.groupby(['personid', 'season']):
             n_rows = len(group)
             
             if n_rows > self.window_size:
@@ -149,19 +150,25 @@ class DataPreparer(Dataset):
                     feat_start = start_offset + i
                     feat_end = feat_start + self.window_size
                     target_idx = feat_end
-                    self.indices.append((feat_start, feat_end, target_idx))
+                    indices.append((feat_start, feat_end, target_idx))
 
-    def __len__(self):
-        return len(self.indices)
+        return PlayerTrainingData(features, targets, indices)
 
-    def __getitem__(self, idx):
-        feat_start, feat_end, target_idx = self.indices[idx]
+    def create_subsplit_loaders(self):
+        max_season = self.df['season'].max()
+        train_df = self.df[self.df['season'] <= max_season - 2].reset_index(drop=True)
+        val_df   = self.df[self.df['season'] == max_season - 1].reset_index(drop=True)
+        test_df  = self.df[self.df['season'] == max_season].reset_index(drop=True)
 
-        x = self.features[feat_start:feat_end]
-        y = self.features[target_idx]
+        train_ds = self.build_dataset_for_df(train_df)
+        val_ds = self.build_dataset_for_df(val_df)
+        test_ds = self.build_dataset_for_df(test_df)
 
-        return torch.from_numpy(x), torch.from_numpy(y)
+        train_loader = DataLoader(train_ds, batch_size=self.batch_size, shuffle=True)
+        val_loader = DataLoader(val_ds, batch_size=self.batch_size, shuffle=False)
+        test_loader = DataLoader(test_ds, batch_size=self.batch_size, shuffle=False)
 
+        return train_loader, val_loader, test_loader
 
     def get_all_data(self) -> None:
         query = """
@@ -173,3 +180,20 @@ class DataPreparer(Dataset):
         self.df = pd.read_sql(query,self.engine)
 
 
+class PlayerTrainingData(Dataset):
+    def __init__(self, features, targets, indices):
+        super().__init__()
+        self.features = features
+        self.targets = targets
+        self.indices = indices
+
+    def __len__(self):
+            return len(self.indices)
+    
+    def __getitem__(self, idx):
+        feat_start, feat_end, target_idx = self.indices[idx]
+
+        x = self.features[feat_start:feat_end]
+        y = self.targets[target_idx]
+
+        return torch.from_numpy(x), torch.from_numpy(y)
