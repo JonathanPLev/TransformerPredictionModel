@@ -1,0 +1,64 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_EXTERNAL_PORT}:5432"
+
+  airflow:
+    build: .
+    depends_on:
+      - postgres
+    restart: always
+    environment:
+      DB_USERNAME=${POSTGRES_USER}
+      DB_PASSWORD=${POSTGRES_PASSWORD}
+      DB_HOST=postgres
+      DB_PORT=5432
+      DB_NAME=${POSTGRES_DB}
+
+      AIRFLOW__CORE__EXECUTOR=SequentialExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES=False
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=False
+
+      AIRFLOW__WEBSERVER__AUTHENTICATE=True
+      AIRFLOW__SIMPLE_AUTH_MANAGER__ADMIN_USERNAME=${AIRFLOW_ADMIN_USERNAME}
+      AIRFLOW__SIMPLE_AUTH_MANAGER__ADMIN_PASSWORD=${AIRFLOW_ADMIN_PASSWORD}
+
+      BETTINGPROS_API_URL= ${BETTINGPROS_API_URL}
+      BETTINGPROS_LIMIT= 2000
+      API_TIMEOUT= 30
+      API_RETRIES= 5
+      API_RETRY_DELAY_MULTIPLIER= 2
+      
+    ports:
+      - "${AIRFLOW_PORT}:8080"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags:ro
+      - ./airflow_pipeline:/opt/airflow/airflow_pipeline:ro
+
+  db-migrate:
+    image: postgres:15
+    depends_on:
+      - postgres
+    restart: "no"
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./sql:/sql:ro
+    entrypoint: ["/bin/bash","-lc"]
+    command: >
+      psql -h postgres -U ${POSTGRES_USER} -d ${POSTGRES_DB} -f /sql/up.sql
+    profiles: ["migrate"]
+
+
+volumes:
+  postgres_data:
