@@ -11,7 +11,6 @@ API_SCRIPTS_PATH = os.path.abspath(
 if API_SCRIPTS_PATH not in sys.path:
     sys.path.insert(0, API_SCRIPTS_PATH)
 
-# `# noqa: E402` tells the linter to ignore this specific rule here (need API_SCRIPTS_PATH before importing)
 from migrate_to_postgres import __main__ as migrate_to_postgres_main # noqa: E402 
 
 default_args = {
