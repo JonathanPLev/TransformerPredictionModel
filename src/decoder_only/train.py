@@ -2,8 +2,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from transformer_training_data import DataPreparer
-from transformer_architecture import PlayerPerformanceTransformer
+from src.decoder_only.training_data import DataPreparer
+from src.decoder_only.decoder_arch import PlayerPerformanceTransformer
 
 
 class ModelTrainer():
