@@ -134,9 +134,11 @@ class DataPreparer():
 
 
     def build_dataset_for_df(self, subset_df) -> None:
+
         subset_df = subset_df.sort_values(['personid','season','clean_game_datetime']).reset_index(drop=True)
 
         indices = []
+        team_ids = subset_df[["player_team_idx", "opp_team_idx"]].to_numpy(dtype=np.float32)
         features = subset_df[self.feature_cols].to_numpy(dtype=np.float32)
         targets = subset_df[self.target_cols].to_numpy(dtype=np.float32)
 
@@ -152,7 +154,7 @@ class DataPreparer():
                     target_idx = feat_end
                     indices.append((feat_start, feat_end, target_idx))
 
-        return PlayerTrainingData(features, targets, indices)
+        return PlayerTrainingData(features, targets, indices, team_ids)
 
     def create_subsplit_loaders(self):
         max_season = self.df['season'].max()
@@ -181,19 +183,19 @@ class DataPreparer():
 
 
 class PlayerTrainingData(Dataset):
-    def __init__(self, features, targets, indices):
+    def __init__(self, features, targets, indices, team_ids):
         super().__init__()
         self.features = features
         self.targets = targets
         self.indices = indices
+        self.team_ids = team_ids
 
     def __len__(self):
             return len(self.indices)
     
     def __getitem__(self, idx):
         feat_start, feat_end, target_idx = self.indices[idx]
-
         x = self.features[feat_start:feat_end]
+        x_id = self.team_ids[feat_start:feat_end]
         y = self.targets[target_idx]
-
-        return torch.from_numpy(x), torch.from_numpy(y)
+        return torch.from_numpy(x), torch.from_numpy(x_id).long(), torch.from_numpy(y)
