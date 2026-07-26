@@ -1,8 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
-import numpy as np
 
 class PlayerPerformanceTransformer(nn.Module):
     def __init__(self, num_cont_features, num_teams, d_model=128, nhead=8, num_layers=4):

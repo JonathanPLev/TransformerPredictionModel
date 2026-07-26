@@ -6,9 +6,6 @@ Creates sequences with lag features, seasonal averages, and contextual data.
 
 import pandas as pd
 import numpy as np
-import json
-from datetime import datetime, timedelta
-import sqlalchemy as sqla
 from src.server.db_local import engine
 import torch
 from torch.utils.data import Dataset, DataLoader

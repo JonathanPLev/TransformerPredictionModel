@@ -1,10 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
-import numpy as np
 
-from transformer_training_data import DataPreparer, PlayerTrainingData
+from transformer_training_data import DataPreparer
 from transformer_architecture import PlayerPerformanceTransformer
 
 
