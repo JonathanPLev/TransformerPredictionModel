@@ -1,6 +1,7 @@
 # TransformerPredictionModel
 
-Project to predict sports player performance outcomes using complex ML modeling.
+Project to predict sports player performance outcomes using complex ML modeling. Current best model architecture + training loop can be found in 
+src/decoder_arch. Points MAE is 4.41. On average, points prediction is only 4 points off the truth. Model can predict points, mins, assists and rebounds right now.
 
 ## 🚀 Quick Start
 
