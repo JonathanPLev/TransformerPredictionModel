@@ -6,14 +6,18 @@ class PlayerPerformanceTransformer(nn.Module):
         super().__init__()
         
         # 1. Continuous Stream: Projects the ~50 engineered stats
-        self.cont_projection = nn.Linear(num_cont_features, d_model)
+        self.cont_projection = nn.Sequential(
+            nn.Linear(num_cont_features, d_model),
+            nn.LayerNorm(d_model),
+            nn.GELU()
+        )
         
         # 2. Categorical Stream: Learns "team identity" (Celtics vs. Pistons)
         # We split d_model between Player Team and Opponent Team
         self.team_embedding = nn.Embedding(num_teams, d_model // 2)
         
         # 3. Positional Encoding: Tells the model which game is "Game 1" vs "Game 10"
-        self.pos_embedding = nn.Parameter(torch.zeros(1, 10, d_model))
+        self.pos_embedding = nn.Parameter(torch.zeros(1, 11, d_model))
         
         # 4. Transformer Blocks
         encoder_layer = nn.TransformerEncoderLayer(
@@ -24,6 +28,8 @@ class PlayerPerformanceTransformer(nn.Module):
         
         # 5. Output Head: Predicts [Points, Assists, Rebounds, Minutes]
         self.output_head = nn.Linear(d_model, 4)
+
+        self.log_vars = nn.Parameter(torch.zeros(4))
 
     def forward(self, x_cont, x_id):
         # x_id shape: (batch, 10, 2)
@@ -39,7 +45,8 @@ class PlayerPerformanceTransformer(nn.Module):
         
         # Pass through Transformer blocks
         # For sequence-to-one, we take the representation of the last game in the window
-        x = self.transformer(x)
+        mask = nn.Transformer.generate_square_subsequent_mask(x.size(1)).to(x.device)
+        x = self.transformer(x, mask=mask, is_causal=True)
         last_token = x[:, -1, :] 
         
         return self.output_head(last_token)

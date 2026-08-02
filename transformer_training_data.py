@@ -86,6 +86,8 @@ TEAM_FEATURE_COLS = [
     "blended_rolling_10_defensive_delta",
     "is_b2b",
     "days_since_last_game",
+    "rolling_5_pace",
+    "blended_std_pace"
 ]
 
 OPPONENT_FEATURE_COLS = [
@@ -109,15 +111,17 @@ FEATURE_COLS = (
 
 TARGET_COLS = [
     "points",
+    "numminutes",
     "assists", 
     "reboundstotal", 
-    "numminutes"
 ]
+#     "assists", 
+    # "reboundstotal", 
 
 
 
 class DataPreparer():
-    def __init__(self, feature_cols=FEATURE_COLS, target_cols=TARGET_COLS,window_size=10, batch_size=64):
+    def __init__(self, feature_cols=FEATURE_COLS, target_cols=TARGET_COLS,window_size=11, batch_size=64):
         self.engine = engine
         self.df = pd.DataFrame
         self.window_size = window_size
@@ -155,7 +159,7 @@ class DataPreparer():
 
     def create_subsplit_loaders(self):
         max_season = self.df['season'].max()
-        train_df = self.df[self.df['season'] <= max_season - 2].reset_index(drop=True)
+        train_df = self.df[self.df['season'] <= max_season - 2].reset_index(drop=True).fillna(0)
         val_df   = self.df[self.df['season'] == max_season - 1].reset_index(drop=True)
         test_df  = self.df[self.df['season'] == max_season].reset_index(drop=True)
 
@@ -173,7 +177,7 @@ class DataPreparer():
         query = """
         SELECT *
         FROM transformer_training_rows
-        WHERE transformer_training_rows.feature_version = 'v6'
+        WHERE transformer_training_rows.feature_version = 'v8'
         """
 
         self.df = pd.read_sql(query,self.engine)

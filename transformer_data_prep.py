@@ -6,7 +6,7 @@ from typing import Dict, Optional
 from uuid import uuid4
 
 
-FEATURE_VERSION = "v7"
+FEATURE_VERSION = "v8"
 TRAINING_TABLE_NAME = "transformer_training_rows"
 DROP_PLAYER_FIRST_SEASONS = True
 
@@ -193,7 +193,7 @@ class TransformerDataGenerator:
         if target_season is not None:
             training_df = training_df[training_df["season"] == target_season].copy()
 
-        missing_cols = [col for col in TRAINING_COLS if col not in training_df.columns]
+        missing_cols = set(TRAINING_COLS) - set(training_df.columns)
         if missing_cols:
             raise KeyError(f"Missing training columns: {missing_cols}")
 
@@ -385,6 +385,7 @@ class TransformerDataGenerator:
             df["clean_game_datetime"].dt.month > 9,
             df["clean_game_datetime"].dt.year - 1,
         )
+
         print(
             f"Loaded seasons {sorted(df['season'].unique())}: "
             f"{len(df)} player-game rows, {df['personid'].nunique()} players"
@@ -440,17 +441,62 @@ class TransformerDataGenerator:
             - df["turnovers"]
         )
 
+        df["true_shooting_percentage"] = df["points"] / (2 * df["fieldgoalsattempted"] + .44 * df["freethrowsattempted"])
+
         # 3. Add individual True Shooting Attempts per row
 
         df["player_tsa"] = df["fieldgoalsattempted"] + (
             0.44 * df["freethrowsattempted"]
         )
 
-        # 4. Get Team Total Denominators per game
-        df["team_tsa"] = df.groupby(["gameid", "playerteamname"])[
-            "player_tsa"
+        df["team_fga"] = df.groupby(["gameid", "playerteamname"])[
+            "fieldgoalsattempted"
         ].transform("sum")
-        df["tsa_share"] = df["player_tsa"] / df["team_tsa"]
+        df["team_fta"]= df.groupby(["gameid", "playerteamname"])[
+            "freethrowsattempted"
+        ].transform("sum")
+        df["team_numminutes"] = df.groupby(["gameid", "playerteamname"])[
+            "numminutes"
+        ].transform("sum")
+        df["team_tov"] = df.groupby(["gameid", "playerteamname"])[
+            "turnovers"
+        ].transform("sum")
+
+        df["usage_pct"] = 100 * (
+            (
+                (df["fieldgoalsattempted"] + 0.44 * df["freethrowsattempted"] + df["turnovers"]) 
+                * df["team_numminutes"]
+            ) 
+            / 
+            (
+                (df["team_fga"] + 0.44 * df["team_fta"] + df["team_tov"]) 
+                * 5 * df["numminutes"]
+            )
+        )
+
+        df["std_usage_pct_raw"] = df.groupby(["personid", "season"])["usage_pct"].transform(
+            lambda x: x.shift(1).expanding(min_periods=1).mean()
+        )
+
+        prior_usage_pct = (
+                    df.groupby(["personid", "season"])
+                    .agg(
+                        prior_usage_pct=("usage_pct", "mean"),
+                    )
+                    .reset_index()
+                )
+        prior_usage_pct["season"] = prior_usage_pct["season"] + 1
+        df = df.merge(prior_usage_pct, on=["personid", "season"], how="left")
+
+        games_played = df["player_game_num_in_season"]
+        weight = (games_played / 15).clip(upper=1.0)
+        df["std_blended_usage_pct"] = np.where(
+            df["prior_usage_pct"].notna(),
+            (1 - weight) * df["prior_usage_pct"]
+            + (weight) * df["std_usage_pct_raw"].fillna(df["prior_usage_pct"]),
+            df["std_usage_pct_raw"].fillna(0),
+        )
+
 
         # 5. Compute lagged player baselines, blended with prior season for early-season stability.
         df["std_gmsc_raw"] = df.groupby(["personid", "season"])["gmsc"].transform(
@@ -475,6 +521,8 @@ class TransformerDataGenerator:
             + (weight) * df["std_gmsc_raw"].fillna(df["prior_gmsc"]),
             df["std_gmsc_raw"].fillna(0),
         )
+
+        df["tsa_share"] = df["player_tsa"] / (df["team_fga"] + 0.44 * df["team_fta"])
 
         df["std_tsa_share_raw"] = df.groupby(["personid", "season"])[
             "tsa_share"
@@ -518,6 +566,9 @@ class TransformerDataGenerator:
             * df["std_expected_minutes_raw"].fillna(df["prior_expected_minutes"]),
             df["std_expected_minutes_raw"].fillna(0),
         )
+
+
+
         df_teammates = df[
             ["gameid", "playerteamname", "personid", "std_expected_minutes"]
             + TEAMMATE_STAT_COLS
@@ -580,33 +631,45 @@ class TransformerDataGenerator:
                 season=("season", "first"),
                 team_fga=("fieldgoalsattempted", "sum"),
                 team_fta=("freethrowsattempted", "sum"),
+                team_fgm=("fieldgoalsmade", "sum"),
                 team_oreb=(
                     "reboundsoffensive",
                     "sum",
                 ),  # Ensure this column matches your raw data name
                 team_tov=("turnovers", "sum"),
                 team_points_scored=("points", "sum"),
+                team_minutes_played=("numminutes", "sum")
             )
             .reset_index()
         )
 
-        # 2. Compute Team Possessions
-        team_game_stats["team_possessions"] = (
-            team_game_stats["team_fga"]
-            + (0.44 * team_game_stats["team_fta"])
-            - team_game_stats["team_oreb"]
-            + team_game_stats["team_tov"]
-        )
+
 
         opp_stats = team_game_stats[
-            ["gameid", "playerteamname", "team_points_scored", "team_possessions"]
-        ].rename(
-            columns={
-                "playerteamname": "opponentteamname",
-                "team_points_scored": "team_points_allowed",
-                "team_possessions": "opponent_possessions",
-            }
-        )
+    [
+        "gameid", 
+        "playerteamname", 
+        "team_points_scored", 
+        "team_fga", 
+        "team_fta", 
+        "team_oreb", 
+        "team_dreb", 
+        "team_fgm", 
+        "team_tov"
+    ]
+    ].rename(
+        columns={
+            "playerteamname": "opponentteamname",
+            "team_points_scored": "team_points_allowed",
+            "team_fga": "opp_fga",
+            "team_fta": "opp_fta",
+            "team_oreb": "opp_oreb",
+            "team_dreb": "opp_dreb",
+            "team_fgm": "opp_fgm", 
+            "team_tov": "opp_tov"
+        }
+    )
+
 
         team_profile = team_game_stats.merge(
             opp_stats, on=["gameid", "opponentteamname"], how="left"
@@ -615,6 +678,39 @@ class TransformerDataGenerator:
         team_profile = team_profile.sort_values(
             ["playerteamname", "clean_game_datetime"]
         ).reset_index(drop=True)
+
+        # compute possessions
+        team_profile["team_possessions"] = 0.5 * (
+            # Team Calculation
+            (
+                team_profile["team_fga"]
+                + (0.44 * team_profile["team_fta"])
+                - (
+                    1.07 
+                    * (team_profile["team_oreb"] / (team_profile["team_oreb"] + team_profile["opp_dreb"])) 
+                    * (team_profile["team_fga"] - team_profile["team_fg"])
+                )
+                + team_profile["team_tov"]
+            )
+            + 
+            # Opponent Calculation
+            (
+                team_profile["opp_fga"]
+                + (0.44 * team_profile["opp_fta"])
+                - (
+                    1.07 
+                    * (team_profile["opp_oreb"] / (team_profile["opp_oreb"] + team_profile["team_dreb"])) 
+                    * (team_profile["opp_fga"] - team_profile["opp_fg"])
+                )
+                + team_profile["opp_tov"]
+            )
+        )
+
+        team_profile["opponent_possessions"] = team_profile["team_possessions"]
+
+        team_profile["team_pace"] = 48 * (
+            team_profile["team_possessions"] / (team_profile["team_minutes_played"] / 5)
+        )
 
         team_profile["game_ortg"] = 100 * (
             team_profile["team_points_scored"] / team_profile["team_possessions"]
@@ -638,6 +734,9 @@ class TransformerDataGenerator:
         team_profile["rolling_10_ortg"] = team_profile.groupby(["playerteamname"])[
             "game_ortg"
         ].transform(lambda x: x.shift(1).rolling(10, min_periods=1).mean())
+        team_profile["rolling_5_pace"] = team_profile.groupby(["playerteamname"])[
+            "team_pace"
+        ].transform(lambda x: x.shift(1).rolling(5, min_periods=1).mean())
 
         team_profile["std_ortg_raw"] = team_profile.groupby(
             ["playerteamname", "season"]
@@ -648,6 +747,10 @@ class TransformerDataGenerator:
         team_profile["std_win_pct_raw"] = team_profile.groupby(
             ["playerteamname", "season"]
         )["game_w"].transform(lambda x: x.shift(1).expanding(min_periods=1).mean())
+
+        team_profile["std_pace_raw"] = team_profile.groupby(
+            ["playerteamname", "season"]
+        )["team_pace"].transform(lambda x: x.shift(1).expanding(min_periods=1).mean())
 
         # 2. Get the Game Counter (N) for the blend
         team_profile["team_game_num"] = team_profile.groupby(
@@ -660,6 +763,7 @@ class TransformerDataGenerator:
                 prior_ortg=("game_ortg", "mean"),
                 prior_drtg=("game_drtg", "mean"),
                 prior_win_pct=("game_w", "mean"),
+                prior_pace=("team_pace", "mean")
             )
             .reset_index()
         )
@@ -698,6 +802,13 @@ class TransformerDataGenerator:
             * team_profile["std_win_pct_raw"].fillna(team_profile["prior_win_pct"]),
             team_profile["std_win_pct_raw"].fillna(0),
         )
+        team_profile["blended_std_pace"] = np.where(
+                    team_profile["prior_pace"].notna(),
+                    (1 - weight) * team_profile["prior_pace"]
+                    + (weight)
+                    * team_profile["std_pace_raw"].fillna(team_profile["prior_pace"]),
+                    team_profile["std_pace_raw"].fillna(0),
+                )
 
         opp_ortg_lookup = team_profile[
             ["gameid", "playerteamname", "blended_std_ortg"]
@@ -823,6 +934,7 @@ class TransformerDataGenerator:
         df = df.merge(opp_lookup, on=["gameid", "opponentteamname"], how="left")
         target_season = int(df["season"].max())
 
+
         df["player_team_idx"] = df["playerteamname"].map(self.team_to_idx)
         df["opp_team_idx"] = df["opponentteamname"].map(self.team_to_idx)
         missing_team_names = sorted(
@@ -834,6 +946,8 @@ class TransformerDataGenerator:
 
         df["player_team_idx"] = df["player_team_idx"].astype("int64")
         df["opp_team_idx"] = df["opp_team_idx"].astype("int64")
+
+
         training_df = self.build_training_frame(df, target_season=target_season)
         print(
             f"Saving season {target_season}: "
@@ -855,7 +969,7 @@ class TransformerDataGenerator:
 
 # (2020,2021), (2021,2022), (2022, 2023),  
 # (2015, 2016), (2016, 2017), (2017, 2018), (2018, 2019), (2019, 2020), (2020,2021), (2021,2022), (2022, 2023),
-year_combos = [(2015, 2016), (2016, 2017), (2017, 2018), (2018, 2019), (2019, 2020), (2020,2021), (2021,2022), (2022, 2023), (2023,2024)]
+year_combos = [(y, y + 1) for y in range(2000, 2024)]
 data_gen = TransformerDataGenerator()
 for combo in year_combos:
     data_gen.get_game_info(combo[0], combo[1])
