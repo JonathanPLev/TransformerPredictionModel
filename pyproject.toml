@@ -16,6 +16,7 @@ dependencies = [
     "sqlalchemy>=2.0.0",
     "torch>=2.9.0",
     "urllib3>=2.6.0",
+    "xgboost>=3.3.0",
 ]
 
 [tool.poe.tasks]
