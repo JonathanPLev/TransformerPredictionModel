@@ -1,4 +1,3 @@
-import pandas as pd
 from transformer_training_data import DataPreparer
 import xgboost as xgb
 from sklearn.metrics import mean_absolute_error
@@ -30,6 +29,8 @@ PLAYER_FEATURE_COLS = [
     "std_gmsc_baseline",
     "std_tsa_share_baseline",
     "std_expected_minutes",
+    "std_blended_usage_pct",
+    "rolling_5_usage_pct"
 ]
 
 # The individual player baseline stats you want to break out per teammate
@@ -48,6 +49,8 @@ TEAM_FEATURE_COLS = [
     "blended_std_ortg",
     "blended_std_drtg",
     "blended_std_win_pct",
+    "blended_std_pace",
+    "rolling_5_pace",
     "blended_rolling_3_defensive_delta",
     "blended_rolling_10_defensive_delta",
     "is_b2b",
@@ -60,6 +63,8 @@ OPPONENT_FEATURE_COLS = [
     "opp_blended_std_ortg",
     "opp_blended_std_drtg",
     "opp_blended_std_win_pct",
+    "opp_blended_std_pace",
+    "opp_rolling_5_pace",
     "opp_blended_rolling_3_defensive_delta",
     "opp_blended_rolling_10_defensive_delta",
     "opp_is_b2b",
